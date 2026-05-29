@@ -183,6 +183,48 @@ def test_subagent_stop_synthesizes(tmp_path):
     assert "auto · ws |" in (ws / ".time-log.md").read_text()
 
 
+def test_systemmessage_echoes_logged_marker(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    marker = "<time-log>2026-05-26 09:00Z–09:20Z | refactor · workspace | did thing | 20m</time-log>"
+    tpath = _transcript(tmp_path, marker, tool_uses=6)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws)})
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout)
+    assert "did thing | 20m" in out["systemMessage"]
+
+
+def test_systemmessage_echoes_synthesized_entry(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    tpath = _transcript(tmp_path, "did work but emitted no marker", tool_uses=6)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws)})
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout)
+    assert "auto · ws |" in out["systemMessage"]
+
+
+def test_no_stdout_when_nothing_logged(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    tpath = _transcript(tmp_path, "just chatting", tool_uses=0)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws)})
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.strip() == ""
+
+
+def test_no_stdout_when_marker_dedups(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    entry = "2026-05-26 09:00Z–09:20Z | refactor · workspace | did thing | 20m"
+    (ws / ".time-log.md").write_text("# Time log\n\n## Entries\n\n" + entry + "\n")
+    marker = "<time-log>" + entry + "</time-log>"
+    tpath = _transcript(tmp_path, marker, tool_uses=6)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws)})
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.strip() == ""
+
+
 def test_synthesis_uses_transcript_timestamps_for_duration(tmp_path):
     ws = tmp_path / "ws"; ws.mkdir()
     rows = [

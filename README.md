@@ -20,6 +20,10 @@ agent; it always exits 0.
 The hook fires on three Claude Code events: **Stop**, **PreCompact**, **SubagentStop**.
 It never exits with a non-zero code.
 
+Whenever it writes one or more entries, it echoes them back to you via a one-line
+`systemMessage` (`⏱ logged N time-log entr…`) so you can see exactly what landed in
+`.time-log.md`. If nothing is written (deduped, SKIP, or no work), it stays silent.
+
 ### Subagent behavior
 
 Subagents (dispatched via `SubagentStop`) are logged the same way as the main agent.

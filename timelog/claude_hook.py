@@ -128,6 +128,18 @@ def synthesize_entry(event, tool_count, project_dir, first_ts, last_ts):
     )
 
 
+def emit_summary(written):
+    """Echo written entries back to the user via the Stop-hook systemMessage channel."""
+    n = len(written)
+    label = "entry" if n == 1 else "entries"
+    body = "\n".join(written)
+    msg = f"⏱ logged {n} time-log {label} to {LOG_FILENAME}:\n{body}"
+    try:
+        print(json.dumps({"suppressOutput": True, "systemMessage": msg}))
+    except (OSError, ValueError):
+        pass
+
+
 def main():
     """Hook entry point: read stdin JSON, scan transcript, log emitted markers, else synthesize. Never blocks."""
     try:
@@ -153,11 +165,14 @@ def main():
     candidates = core.extract_markers(text)
     valid, new = core.select_new_entries(candidates, existing)
 
+    written = []
+
     def _append(lines):
         try:
             with open(log_file, "a") as f:
                 for ln in lines:
                     f.write(ln + "\n")
+            written.extend(lines)
         except OSError:
             pass
 
@@ -173,6 +188,9 @@ def main():
         entry = synthesize_entry(event, tool_count, project_dir, first_ts, last_ts)
         if core.is_valid_entry(entry) and entry not in existing:
             _append([entry])
+
+    if written:
+        emit_summary(written)
 
     sys.exit(0)
 
