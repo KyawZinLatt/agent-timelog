@@ -1,4 +1,4 @@
-from timelog.core import extract_markers, is_valid_entry, has_skip
+from timelog.core import extract_markers, is_valid_entry, has_skip, select_new_entries
 
 
 def test_extract_markers_returns_inner_text():
@@ -55,8 +55,6 @@ def test_has_skip_false_when_absent():
     assert not has_skip("<time-log>2026-05-26 09:00Z–09:20Z | x · y | z | 20m</time-log>")
 
 
-from timelog.core import select_new_entries
-
 def test_select_filters_invalid_and_dedups():
     candidates = [
         "2026-05-26 09:00Z–09:20Z | refactor · workspace | a | 20m",
@@ -75,3 +73,12 @@ def test_select_filters_invalid_and_dedups():
 
 def test_select_empty():
     assert select_new_entries([], set()) == ([], [])
+
+
+def test_invalid_summary_contains_pipe_separator():
+    # summary must not contain " | " (the field separator)
+    assert not is_valid_entry("2026-05-26 09:00Z–09:20Z | refactor · workspace | part a | part b | 20m")
+
+def test_valid_summary_allows_bare_pipe():
+    # a bare pipe (no surrounding spaces) is allowed in summary
+    assert is_valid_entry("2026-05-26 09:00Z–09:20Z | refactor · workspace | a|b ratio | 20m")

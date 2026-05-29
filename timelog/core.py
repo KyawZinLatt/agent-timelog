@@ -4,6 +4,7 @@ MARKER_RE = re.compile(r"<time-log>(.+?)</time-log>", re.DOTALL)
 
 
 def extract_markers(text):
+    """Return a list of stripped content strings found inside <time-log>…</time-log> tags."""
     return [m.group(1).strip() for m in MARKER_RE.finditer(text)]
 
 
@@ -17,7 +18,7 @@ ENTRY_RE = re.compile(
     r"\s·\s"
     r"[a-z][a-z-]*"
     r"\s\|\s"
-    r".+?"
+    r"(?:(?! \| ).)+?"
     r"\s\|\s"
     r"(?:\d+h\s\d+m|\d+h|\d+m)"
     r"$"
@@ -25,6 +26,7 @@ ENTRY_RE = re.compile(
 
 
 def is_valid_entry(entry):
+    """Return True if entry matches the canonical time-log format, False otherwise."""
     return bool(ENTRY_RE.match(" ".join(entry.split())))
 
 
@@ -32,6 +34,7 @@ SKIP_RE = re.compile(r"<time-log>\s*SKIP\s*:\s*\S.*?</time-log>", re.DOTALL)
 
 
 def has_skip(text):
+    """Return True if text contains a valid SKIP marker, False otherwise."""
     return bool(SKIP_RE.search(text))
 
 
