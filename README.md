@@ -31,7 +31,7 @@ without emitting a marker gets an auto-synthesized entry. Subagents are never bl
 ## Install — repo path
 
 ```bash
-git clone https://github.com/<OWNER>/agent-timelog
+git clone https://github.com/KyawZinLatt/agent-timelog
 cd agent-timelog
 bash install.sh
 ```
