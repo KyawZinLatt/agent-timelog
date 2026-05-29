@@ -15,7 +15,8 @@ agent; it always exits 0.
    the hook synthesizes a generic `auto`-category entry from transcript metadata (first /
    last message timestamps, tool-call count). The agent is never blocked.
 3. **SKIP path:** The agent emits `<time-log>SKIP: reason</time-log>` to suppress
-   synthesis for a session with no meaningful work (e.g. pure Q&A).
+   synthesis for a session with genuinely nothing to record (e.g. a monitoring tick
+   or accidental start). Q&A and discussion DO count — log those with a real marker.
 
 The hook fires on three Claude Code events: **Stop**, **PreCompact**, **SubagentStop**.
 It never exits with a non-zero code.
@@ -100,10 +101,12 @@ the marker pipeline.
 
 ## SKIP opt-out
 
-For sessions with no meaningful work (pure Q&A, monitoring ticks, etc.):
+Reserve SKIP for sessions with genuinely nothing to record (monitoring ticks,
+accidental starts). **Q&A and discussion count as work — log them with a real marker**
+(e.g. category `qa`) instead of skipping.
 
 ```
-<time-log>SKIP: only answered questions, no code changes</time-log>
+<time-log>SKIP: monitoring tick, no work</time-log>
 ```
 
 This suppresses auto-synthesis. The session is not logged.

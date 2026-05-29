@@ -43,7 +43,7 @@ Adapters may extend or restrict this list; the validator only checks token shape
 
 `bug-fix` · `feature` · `incident` · `investigation` · `ops` · `deploy` · `refactor`
 · `docs` · `planning` · `monitoring` · `review` · `research` · `setup` · `comms`
-· `cleanup` · `auto`
+· `cleanup` · `qa` · `auto`
 
 > `auto` is reserved for synthesized (machine-generated) entries.
 
@@ -91,7 +91,9 @@ Agents emit entries by placing them inside a marker tag in their response text:
 
 ### SKIP opt-out
 
-An agent that did no meaningful work may suppress auto-synthesis by emitting:
+An agent that did genuinely nothing to record (a monitoring tick, an accidental start)
+may suppress auto-synthesis by emitting the SKIP marker below. Q&A and discussion are
+work and should be logged with a real marker, not skipped.
 
 ```
 <time-log>SKIP: <reason></time-log>
