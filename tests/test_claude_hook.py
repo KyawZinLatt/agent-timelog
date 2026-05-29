@@ -118,3 +118,27 @@ def test_enforce_disabled_never_blocks(tmp_path):
     r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
                   {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_ENFORCE": "0"})
     assert r.returncode == 0, r.stderr
+
+
+def test_scan_skips_malformed_jsonl_line(tmp_path):
+    f = tmp_path / "t.jsonl"
+    good1 = json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "text", "text": "first"}, {"type": "tool_use", "name": "Bash"}]}})
+    good2 = json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "Edit"}]}})
+    f.write_text(good1 + "\nthis is not json\n" + good2 + "\n")
+    text, tool_count = scan_transcript(str(f))
+    assert "first" in text
+    assert tool_count == 2
+
+
+def test_already_logged_marker_dedups_and_passes(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    entry = "2026-05-26 09:00Z–09:20Z | refactor · workspace | did thing | 20m"
+    (ws / ".time-log.md").write_text("# Time log\n\n## Entries\n\n" + entry + "\n")
+    marker = "<time-log>" + entry + "</time-log>"
+    tpath = _transcript(tmp_path, marker, tool_uses=6)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws)})
+    assert r.returncode == 0, r.stderr
+    assert (ws / ".time-log.md").read_text().count(entry) == 1

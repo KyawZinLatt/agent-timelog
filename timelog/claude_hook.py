@@ -98,7 +98,7 @@ def fail_block(tool_count, event, project_dir):
         f"BLOCKED [{event}]: {tool_count} tool calls in this session "
         f"(workspace={project_dir}) but no valid <time-log> marker emitted.\n\n"
         f"Emit a canonical marker per task in your final response, e.g.:\n"
-        f"  <time-log>YYYY-MM-DD HH:MMZ-HH:MMZ | category | scope | summary | duration</time-log>\n"
+        f"  <time-log>YYYY-MM-DD HH:MMZ–HH:MMZ | category · scope | summary | duration</time-log>\n"
         f"  (en-dash U+2013 between times, middle-dot U+00B7 between category and scope)\n"
         f"Or opt out: <time-log>SKIP: reason</time-log>\n"
         f"Threshold: {MIN_WORK_THRESHOLD} tool calls (env TIMELOG_MIN_TOOLS). "
@@ -108,6 +108,7 @@ def fail_block(tool_count, event, project_dir):
 
 
 def main():
+    """Hook entry point: read stdin JSON, scan transcript, append new entries, enforce marker presence."""
     try:
         data = json.load(sys.stdin)
     except ValueError:
@@ -132,9 +133,12 @@ def main():
     valid, new = core.select_new_entries(candidates, existing)
 
     if new:
-        with open(log_file, "a") as f:
-            for entry in new:
-                f.write(entry + "\n")
+        try:
+            with open(log_file, "a") as f:
+                for entry in new:
+                    f.write(entry + "\n")
+        except OSError:
+            sys.exit(0)
 
     if ENFORCE and tool_count >= MIN_WORK_THRESHOLD and not valid and not core.has_skip(text):
         fail_block(tool_count, event, project_dir)
