@@ -1,0 +1,6 @@
+{
+  "name": "agent-timelog",
+  "version": "0.1.0",
+  "description": "Automatic per-session time tracking via Stop/PreCompact/SubagentStop hooks. Logs <time-log> markers and auto-synthesizes an entry when none is emitted. Never blocks.",
+  "author": "<OWNER>"
+}
