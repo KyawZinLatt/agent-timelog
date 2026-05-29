@@ -153,8 +153,8 @@ extension points for future adapters (Cursor, Codex, OpenCode, Gemini, etc.).
 
 - No usernames, real IP addresses, email addresses, or private credentials appear in any
   tracked file in this repo.
-- Example IP addresses in documentation use the RFC 5737 reserved range (e.g.
-  `203.0.113.0`); example emails use `user@example.com`.
+- Example IP addresses in documentation use the RFC 5737 TEST-NET range only;
+  example emails use the RFC 2606 reserved `example.com` domain only.
 - `.time-log.md` files (which may contain private work details) are gitignored and are
   never committed or scanned by this tool.
 - Run `bash scripts/sanitize-check.sh` before publishing to catch accidental leaks.
