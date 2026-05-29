@@ -1,4 +1,4 @@
-from timelog.core import extract_markers, is_valid_entry
+from timelog.core import extract_markers, is_valid_entry, has_skip
 
 
 def test_extract_markers_returns_inner_text():
@@ -41,3 +41,15 @@ def test_invalid_missing_duration():
 
 def test_invalid_dot_separator_not_middledot():
     assert not is_valid_entry("2026-05-26 09:00Z–09:20Z | refactor . workspace | x | 20m")
+
+
+def test_has_skip_true():
+    assert has_skip("text <time-log>SKIP: only Q&A this session</time-log> more")
+
+
+def test_has_skip_requires_reason():
+    assert not has_skip("<time-log>SKIP:</time-log>")
+
+
+def test_has_skip_false_when_absent():
+    assert not has_skip("<time-log>2026-05-26 09:00Z–09:20Z | x · y | z | 20m</time-log>")

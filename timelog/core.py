@@ -26,3 +26,10 @@ ENTRY_RE = re.compile(
 
 def is_valid_entry(entry):
     return bool(ENTRY_RE.match(" ".join(entry.split())))
+
+
+SKIP_RE = re.compile(r"<time-log>\s*SKIP\s*:\s*\S.*?</time-log>", re.DOTALL)
+
+
+def has_skip(text):
+    return bool(SKIP_RE.search(text))
