@@ -23,11 +23,16 @@ cp "$SRC/timelog/claude_hook.py" "$HOOK_DIR/claude_hook.py"
 chmod +x "$HOOK_DIR/claude_hook.py"
 
 # claude_hook.py uses `from timelog import core`; flat-copy needs sibling import
+# Replace the package import with a sys.path.insert + bare import so the script
+# locates core.py in the same directory regardless of the working directory
+# when the hook fires.
 python3 - "$HOOK_DIR/claude_hook.py" <<'PY'
 import sys
 p = sys.argv[1]
 s = open(p).read()
-patched = s.replace("from timelog import core", "import core")
+old = "from timelog import core"
+new = "sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))\nimport core"
+patched = s.replace(old, new)
 open(p, "w").write(patched)
 PY
 
