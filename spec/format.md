@@ -1,0 +1,129 @@
+# agent-timelog Format Specification
+
+Version: 0.1  
+Status: Stable  
+Scope: Agent-neutral contract. Any adapter (Claude Code, Cursor, Codex, etc.) that writes
+to a `.time-log.md` file MUST produce lines conforming to this spec.
+
+---
+
+## 1. Log-file shape
+
+Each workspace produces one file: `<workspace-root>/.time-log.md`.  
+The file is append-only. Each entry occupies exactly one line.  
+The file is gitignored by default; adapters MUST NOT commit it.
+
+---
+
+## 2. Canonical entry format
+
+```
+YYYY-MM-DD HH:MMZ–HH:MMZ | category · scope | summary | duration
+```
+
+### Fields
+
+| Field | Syntax | Notes |
+|-------|--------|-------|
+| `date` | `YYYY-MM-DD` | UTC calendar date of the session start |
+| `start` | `HH:MMZ` | UTC 24-hour clock, `Z` suffix |
+| `–` | U+2013 EN DASH | **Not** a hyphen `-` (U+002D). Required exactly as shown. |
+| `end` | `HH:MMZ` | UTC 24-hour clock, `Z` suffix |
+| `category` | `[a-z][a-z-]*` | Lowercase letters and hyphens; must start with a letter |
+| `·` | U+00B7 MIDDLE DOT | **Not** a period `.`. Required exactly as shown. |
+| `scope` | `[a-z][a-z-]*` | Same token rules as category |
+| `summary` | any text | MUST NOT contain ` | ` (space + pipe + space) |
+| `duration` | `Nm` \| `Nh` \| `Nh Nm` | Examples: `20m`, `2h`, `1h 30m` |
+
+Field separators are ` | ` (space + U+007C VERTICAL LINE + space).
+
+### Suggested category vocabulary
+
+Adapters may extend or restrict this list; the validator only checks token shape.
+
+`bug-fix` · `feature` · `incident` · `investigation` · `ops` · `deploy` · `refactor`
+· `docs` · `planning` · `monitoring` · `review` · `research` · `setup` · `comms`
+· `cleanup` · `auto`
+
+> `auto` is reserved for synthesized (machine-generated) entries.
+
+---
+
+## 3. Validation regex (`ENTRY_RE`)
+
+Adapters MUST use (or be equivalent to) this Python regex to accept or reject a candidate line:
+
+```python
+import re
+
+ENTRY_RE = re.compile(
+    r"^"
+    r"\d{4}-\d{2}-\d{2}"
+    r"\s"
+    r"\d{2}:\d{2}Z–\d{2}:\d{2}Z"   # en-dash U+2013
+    r"\s\|\s"
+    r"[a-z][a-z-]*"
+    r"\s·\s"                          # middle-dot U+00B7
+    r"[a-z][a-z-]*"
+    r"\s\|\s"
+    r"(?:(?! \| ).)+?"                     # summary — no embedded ` | `
+    r"\s\|\s"
+    r"(?:\d+h\s\d+m|\d+h|\d+m)"
+    r"$"
+)
+```
+
+Apply after collapsing internal whitespace: `" ".join(entry.split())`.
+
+---
+
+## 4. The `<time-log>` marker
+
+Agents emit entries by placing them inside a marker tag in their response text:
+
+```
+<time-log>YYYY-MM-DD HH:MMZ–HH:MMZ | category · scope | summary | duration</time-log>
+```
+
+- Multiple markers per response are allowed; each is extracted independently.
+- Prose or partial text inside a `<time-log>` tag that fails validation is silently dropped.
+- Markers MAY span newlines; the content is stripped before validation.
+
+### SKIP opt-out
+
+An agent that did no meaningful work may suppress auto-synthesis by emitting:
+
+```
+<time-log>SKIP: <reason></time-log>
+```
+
+The reason MUST be non-empty (at least one non-whitespace character after the colon).
+
+---
+
+## 5. Auto-synthesis (adapter behavior, not wire format)
+
+When no valid marker is emitted and no SKIP is present, a conforming adapter MAY synthesize
+a generic entry automatically, using:
+
+- `category` = `auto`
+- `scope` = sanitized workspace basename (fallback: `session`)
+- `summary` = `auto-logged <event>, <N> tool calls`  (no ` | `)
+- `duration` derived from first–last transcript timestamps; minimum 1m
+
+Synthesized entries MUST pass `ENTRY_RE` before being written.
+
+---
+
+## 6. Deduplication
+
+Before appending, adapters MUST read existing entries and skip any candidate whose
+collapsed form already appears in the file. Within a single run, first-seen wins.
+
+---
+
+## 7. Future adapters
+
+This spec is intentionally agent-neutral. The `agent-timelog` repo ships a Claude Code
+adapter today; `adapters/` and this `spec/` directory reserve the extension points for
+Cursor, Codex, OpenCode, and others.
