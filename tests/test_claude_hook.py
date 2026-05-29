@@ -142,3 +142,21 @@ def test_already_logged_marker_dedups_and_passes(tmp_path):
                   {"CLAUDE_PROJECT_DIR": str(ws)})
     assert r.returncode == 0, r.stderr
     assert (ws / ".time-log.md").read_text().count(entry) == 1
+
+
+def test_subagent_stop_logs_marker_without_enforcing(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    marker = "<time-log>2026-05-26 09:00Z–09:20Z | feature · backend | sub work | 20m</time-log>"
+    tpath = _transcript(tmp_path, marker, tool_uses=6)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "SubagentStop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws)})
+    assert r.returncode == 0, r.stderr
+    assert "sub work | 20m" in (ws / ".time-log.md").read_text()
+
+
+def test_subagent_stop_does_not_block_without_marker(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    tpath = _transcript(tmp_path, "subagent did work but no marker", tool_uses=6)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "SubagentStop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws)})
+    assert r.returncode == 0, r.stderr

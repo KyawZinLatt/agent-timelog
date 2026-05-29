@@ -67,6 +67,7 @@ def scan_transcript(transcript_path):
 
 MIN_WORK_THRESHOLD = int(os.environ.get("TIMELOG_MIN_TOOLS", "5"))
 ENFORCE = os.environ.get("TIMELOG_ENFORCE", "1") != "0"
+ENFORCED_EVENTS = ("Stop", "PreCompact")
 
 
 def read_existing_entries(log_file):
@@ -140,7 +141,13 @@ def main():
         except OSError:
             sys.exit(0)
 
-    if ENFORCE and tool_count >= MIN_WORK_THRESHOLD and not valid and not core.has_skip(text):
+    if (
+        ENFORCE
+        and event in ENFORCED_EVENTS
+        and tool_count >= MIN_WORK_THRESHOLD
+        and not valid
+        and not core.has_skip(text)
+    ):
         fail_block(tool_count, event, project_dir)
 
     sys.exit(0)
