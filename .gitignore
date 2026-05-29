@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+# never commit time-log DATA — may contain private work details
+.time-log.md
+**/.time-log.md
+# scratch / local
+*.local
+.env
