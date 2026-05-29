@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agent-timelog"
+version = "0.1.0"
+description = "Per-session time tracking for AI coding agents"
+requires-python = ">=3.8"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["timelog"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
