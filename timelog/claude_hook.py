@@ -36,6 +36,35 @@ def resolve_workspace(cwd_from_input):
     return ""
 
 
+def scan_transcript(transcript_path):
+    if not transcript_path or not os.path.exists(transcript_path):
+        return "", 0
+    parts = []
+    tool_count = 0
+    try:
+        with open(transcript_path) as f:
+            for line in f:
+                try:
+                    msg = json.loads(line)
+                except ValueError:
+                    continue
+                if msg.get("type") != "assistant":
+                    continue
+                content = msg.get("message", {}).get("content", [])
+                if not isinstance(content, list):
+                    continue
+                for c in content:
+                    if not isinstance(c, dict):
+                        continue
+                    if c.get("type") == "text":
+                        parts.append(c.get("text", ""))
+                    elif c.get("type") == "tool_use":
+                        tool_count += 1
+    except OSError:
+        return "", 0
+    return "\n".join(parts), tool_count
+
+
 def read_existing_entries(log_file):
     existing = set()
     try:
