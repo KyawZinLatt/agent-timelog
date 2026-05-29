@@ -181,3 +181,23 @@ def test_subagent_stop_synthesizes(tmp_path):
                   {"CLAUDE_PROJECT_DIR": str(ws)})
     assert r.returncode == 0, r.stderr
     assert "auto · ws |" in (ws / ".time-log.md").read_text()
+
+
+def test_synthesis_uses_transcript_timestamps_for_duration(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    rows = [
+        {"type": "assistant", "timestamp": "2026-05-29T05:30:00.000Z",
+         "message": {"content": [{"type": "text", "text": "start, no marker"}]
+                     + [{"type": "tool_use", "name": "Bash"} for _ in range(6)]}},
+        {"type": "assistant", "timestamp": "2026-05-29T05:50:00.000Z",
+         "message": {"content": [{"type": "text", "text": "end"}]}},
+    ]
+    tpath = tmp_path / "ts.jsonl"
+    tpath.write_text("\n".join(json.dumps(r) for r in rows))
+    r = _run_hook({"transcript_path": str(tpath), "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws)})
+    assert r.returncode == 0, r.stderr
+    content = (ws / ".time-log.md").read_text()
+    assert "| auto · ws |" in content          # middle-dot scope
+    assert "| 20m" in content                        # 05:30 -> 05:50 = 20 minutes
+    assert "05:30Z–05:50Z" in content           # en-dash time range
