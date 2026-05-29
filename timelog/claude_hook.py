@@ -1,3 +1,4 @@
+import datetime
 import json
 import os
 import sys
@@ -26,6 +27,9 @@ Validates strict canonical format; prose containing the tag pair is silently dro
 
 """
 
+MIN_WORK_THRESHOLD = int(os.environ.get("TIMELOG_MIN_TOOLS", "1"))
+SYNTHESIZE = os.environ.get("TIMELOG_SYNTHESIZE", "1") != "0"
+
 
 def resolve_workspace(cwd_from_input):
     candidate = os.environ.get("CLAUDE_PROJECT_DIR", "").strip()
@@ -34,40 +38,6 @@ def resolve_workspace(cwd_from_input):
     if cwd_from_input and os.path.isdir(cwd_from_input):
         return cwd_from_input
     return ""
-
-
-def scan_transcript(transcript_path):
-    if not transcript_path or not os.path.exists(transcript_path):
-        return "", 0
-    parts = []
-    tool_count = 0
-    try:
-        with open(transcript_path) as f:
-            for line in f:
-                try:
-                    msg = json.loads(line)
-                except ValueError:
-                    continue
-                if msg.get("type") != "assistant":
-                    continue
-                content = msg.get("message", {}).get("content", [])
-                if not isinstance(content, list):
-                    continue
-                for c in content:
-                    if not isinstance(c, dict):
-                        continue
-                    if c.get("type") == "text":
-                        parts.append(c.get("text", ""))
-                    elif c.get("type") == "tool_use":
-                        tool_count += 1
-    except OSError:
-        return "", 0
-    return "\n".join(parts), tool_count
-
-
-MIN_WORK_THRESHOLD = int(os.environ.get("TIMELOG_MIN_TOOLS", "5"))
-ENFORCE = os.environ.get("TIMELOG_ENFORCE", "1") != "0"
-ENFORCED_EVENTS = ("Stop", "PreCompact")
 
 
 def read_existing_entries(log_file):
@@ -94,22 +64,72 @@ def ensure_log_file(path):
         return False
 
 
-def fail_block(tool_count, event, project_dir):
-    sys.stderr.write(
-        f"BLOCKED [{event}]: {tool_count} tool calls in this session "
-        f"(workspace={project_dir}) but no valid <time-log> marker emitted.\n\n"
-        f"Emit a canonical marker per task in your final response, e.g.:\n"
-        f"  <time-log>YYYY-MM-DD HH:MMZ–HH:MMZ | category · scope | summary | duration</time-log>\n"
-        f"  (en-dash U+2013 between times, middle-dot U+00B7 between category and scope)\n"
-        f"Or opt out: <time-log>SKIP: reason</time-log>\n"
-        f"Threshold: {MIN_WORK_THRESHOLD} tool calls (env TIMELOG_MIN_TOOLS). "
-        f"Disable: TIMELOG_ENFORCE=0\n"
+def _parse_ts(value):
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def scan_transcript(transcript_path):
+    if not transcript_path or not os.path.exists(transcript_path):
+        return "", 0, None, None
+    parts = []
+    tool_count = 0
+    first_ts = None
+    last_ts = None
+    try:
+        with open(transcript_path) as f:
+            for line in f:
+                try:
+                    msg = json.loads(line)
+                except ValueError:
+                    continue
+                ts = _parse_ts(msg.get("timestamp"))
+                if ts is not None:
+                    if first_ts is None or ts < first_ts:
+                        first_ts = ts
+                    if last_ts is None or ts > last_ts:
+                        last_ts = ts
+                if msg.get("type") != "assistant":
+                    continue
+                content = msg.get("message", {}).get("content", [])
+                if not isinstance(content, list):
+                    continue
+                for c in content:
+                    if not isinstance(c, dict):
+                        continue
+                    if c.get("type") == "text":
+                        parts.append(c.get("text", ""))
+                    elif c.get("type") == "tool_use":
+                        tool_count += 1
+    except OSError:
+        return "", 0, None, None
+    return "\n".join(parts), tool_count, first_ts, last_ts
+
+
+def synthesize_entry(event, tool_count, project_dir, first_ts, last_ts):
+    now = datetime.datetime.now(datetime.timezone.utc)
+    start = first_ts or now
+    end = last_ts or start
+    minutes = int(round((end - start).total_seconds() / 60))
+    scope = core.sanitize_token(os.path.basename(project_dir.rstrip("/")), "session")
+    summary = f"auto-logged {event}, {tool_count} tool calls"
+    return core.build_entry(
+        start.strftime("%Y-%m-%d"),
+        start.strftime("%H:%M"),
+        end.strftime("%H:%M"),
+        "auto",
+        scope,
+        summary,
+        core.format_duration(minutes),
     )
-    sys.exit(2)
 
 
 def main():
-    """Hook entry point: read stdin JSON, scan transcript, append new entries, enforce marker presence."""
+    """Hook entry point: read stdin JSON, scan transcript, log emitted markers, else synthesize. Never blocks."""
     try:
         data = json.load(sys.stdin)
     except ValueError:
@@ -128,27 +148,31 @@ def main():
         sys.exit(0)
 
     existing = read_existing_entries(log_file)
-    text, tool_count = scan_transcript(transcript_path)
+    text, tool_count, first_ts, last_ts = scan_transcript(transcript_path)
 
     candidates = core.extract_markers(text)
     valid, new = core.select_new_entries(candidates, existing)
 
-    if new:
+    def _append(lines):
         try:
             with open(log_file, "a") as f:
-                for entry in new:
-                    f.write(entry + "\n")
+                for ln in lines:
+                    f.write(ln + "\n")
         except OSError:
-            sys.exit(0)
+            pass
+
+    if new:
+        _append(new)
 
     if (
-        ENFORCE
-        and event in ENFORCED_EVENTS
-        and tool_count >= MIN_WORK_THRESHOLD
-        and not valid
+        not valid
         and not core.has_skip(text)
+        and tool_count >= MIN_WORK_THRESHOLD
+        and SYNTHESIZE
     ):
-        fail_block(tool_count, event, project_dir)
+        entry = synthesize_entry(event, tool_count, project_dir, first_ts, last_ts)
+        if core.is_valid_entry(entry) and entry not in existing:
+            _append([entry])
 
     sys.exit(0)
 

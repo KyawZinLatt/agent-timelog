@@ -59,3 +59,34 @@ def select_new_entries(candidates, existing):
         seen.add(collapsed)
         new.append(collapsed)
     return valid, new
+
+
+def sanitize_token(value, fallback):
+    """Coerce a string to a valid category/scope token: lowercase letters + hyphens."""
+    lowered = "".join(
+        c if ((c.isalpha() and c.isascii()) or c == "-") else "-"
+        for c in value.lower()
+    )
+    while "--" in lowered:
+        lowered = lowered.replace("--", "-")
+    lowered = lowered.strip("-")
+    if lowered and lowered[0].isalpha():
+        return lowered
+    return fallback
+
+
+def format_duration(total_minutes):
+    """Render minutes as 'Nm' | 'Nh' | 'Nh Nm'; minimum 1m."""
+    if total_minutes < 1:
+        total_minutes = 1
+    hours, minutes = divmod(total_minutes, 60)
+    if hours and minutes:
+        return f"{hours}h {minutes}m"
+    if hours:
+        return f"{hours}h"
+    return f"{minutes}m"
+
+
+def build_entry(date, start, end, category, scope, summary, duration):
+    """Assemble a canonical time-log line. Caller ensures fields are clean."""
+    return f"{date} {start}Z–{end}Z | {category} · {scope} | {summary} | {duration}"

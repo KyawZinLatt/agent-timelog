@@ -1,4 +1,4 @@
-from timelog.core import extract_markers, is_valid_entry, has_skip, select_new_entries
+from timelog.core import extract_markers, is_valid_entry, has_skip, select_new_entries, sanitize_token, format_duration, build_entry
 
 
 def test_extract_markers_returns_inner_text():
@@ -82,3 +82,29 @@ def test_invalid_summary_contains_pipe_separator():
 def test_valid_summary_allows_bare_pipe():
     # a bare pipe (no surrounding spaces) is allowed in summary
     assert is_valid_entry("2026-05-26 09:00Z–09:20Z | refactor · workspace | a|b ratio | 20m")
+
+
+def test_sanitize_token_basic():
+    assert sanitize_token("Agent-TimeLog", "x") == "agent-timelog"
+
+
+def test_sanitize_token_maps_nonalpha_to_hyphen_and_collapses():
+    assert sanitize_token("dev_server  setup", "x") == "dev-server-setup"
+
+
+def test_sanitize_token_fallback_when_no_leading_alpha():
+    assert sanitize_token("123", "session") == "session"
+
+
+def test_format_duration_variants():
+    assert format_duration(0) == "1m"
+    assert format_duration(20) == "20m"
+    assert format_duration(60) == "1h"
+    assert format_duration(125) == "2h 5m"
+
+
+def test_build_entry_passes_validation():
+    e = build_entry("2026-05-29", "05:30", "05:50", "auto", "agent-timelog",
+                    "auto-logged Stop, 6 tool calls", "20m")
+    assert is_valid_entry(e)
+    assert "·" in e and "–" in e

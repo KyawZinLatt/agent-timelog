@@ -46,14 +46,29 @@ def test_scan_collects_text_and_counts_tools(tmp_path):
     ]
     f = tmp_path / "t.jsonl"
     _write_jsonl(f, rows)
-    text, tool_count = scan_transcript(str(f))
+    text, tool_count, _first, _last = scan_transcript(str(f))
     assert "hello <time-log>X</time-log>" in text
     assert "ignored" not in text
     assert tool_count == 2
 
 
 def test_scan_missing_file_returns_empty():
-    assert scan_transcript("/nope/missing.jsonl") == ("", 0)
+    assert scan_transcript("/nope/missing.jsonl") == ("", 0, None, None)
+
+
+def test_scan_captures_first_and_last_timestamps(tmp_path):
+    rows = [
+        {"type": "assistant", "timestamp": "2026-05-29T05:30:00.000Z",
+         "message": {"content": [{"type": "text", "text": "a"}, {"type": "tool_use", "name": "Bash"}]}},
+        {"type": "assistant", "timestamp": "2026-05-29T05:50:00.000Z",
+         "message": {"content": [{"type": "text", "text": "b"}]}},
+    ]
+    f = tmp_path / "t.jsonl"
+    f.write_text("\n".join(json.dumps(r) for r in rows))
+    _text, n, first, last = scan_transcript(str(f))
+    assert n == 1
+    assert first.hour == 5 and first.minute == 30
+    assert last.minute == 50
 
 
 def _run_hook(stdin_obj, env_extra):
@@ -87,51 +102,6 @@ def test_valid_marker_is_appended_and_passes(tmp_path):
     assert "did thing | 20m" in (ws / ".time-log.md").read_text()
 
 
-def test_work_without_marker_blocks(tmp_path):
-    ws = tmp_path / "ws"; ws.mkdir()
-    tpath = _transcript(tmp_path, "did lots of work but no marker", tool_uses=6)
-    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
-                  {"CLAUDE_PROJECT_DIR": str(ws)})
-    assert r.returncode == 2
-    assert "BLOCKED" in r.stderr
-
-
-def test_skip_marker_bypasses_enforcement(tmp_path):
-    ws = tmp_path / "ws"; ws.mkdir()
-    tpath = _transcript(tmp_path, "<time-log>SKIP: only Q&A</time-log>", tool_uses=6)
-    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
-                  {"CLAUDE_PROJECT_DIR": str(ws)})
-    assert r.returncode == 0, r.stderr
-
-
-def test_below_threshold_passes_without_marker(tmp_path):
-    ws = tmp_path / "ws"; ws.mkdir()
-    tpath = _transcript(tmp_path, "tiny session", tool_uses=2)
-    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
-                  {"CLAUDE_PROJECT_DIR": str(ws)})
-    assert r.returncode == 0, r.stderr
-
-
-def test_enforce_disabled_never_blocks(tmp_path):
-    ws = tmp_path / "ws"; ws.mkdir()
-    tpath = _transcript(tmp_path, "work no marker", tool_uses=6)
-    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
-                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_ENFORCE": "0"})
-    assert r.returncode == 0, r.stderr
-
-
-def test_scan_skips_malformed_jsonl_line(tmp_path):
-    f = tmp_path / "t.jsonl"
-    good1 = json.dumps({"type": "assistant", "message": {"content": [
-        {"type": "text", "text": "first"}, {"type": "tool_use", "name": "Bash"}]}})
-    good2 = json.dumps({"type": "assistant", "message": {"content": [
-        {"type": "tool_use", "name": "Edit"}]}})
-    f.write_text(good1 + "\nthis is not json\n" + good2 + "\n")
-    text, tool_count = scan_transcript(str(f))
-    assert "first" in text
-    assert tool_count == 2
-
-
 def test_already_logged_marker_dedups_and_passes(tmp_path):
     ws = tmp_path / "ws"; ws.mkdir()
     entry = "2026-05-26 09:00Z–09:20Z | refactor · workspace | did thing | 20m"
@@ -144,6 +114,18 @@ def test_already_logged_marker_dedups_and_passes(tmp_path):
     assert (ws / ".time-log.md").read_text().count(entry) == 1
 
 
+def test_scan_skips_malformed_jsonl_line(tmp_path):
+    f = tmp_path / "t.jsonl"
+    good1 = json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "text", "text": "first"}, {"type": "tool_use", "name": "Bash"}]}})
+    good2 = json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "Edit"}]}})
+    f.write_text(good1 + "\nthis is not json\n" + good2 + "\n")
+    text, tool_count, _f, _l = scan_transcript(str(f))
+    assert "first" in text
+    assert tool_count == 2
+
+
 def test_subagent_stop_logs_marker_without_enforcing(tmp_path):
     ws = tmp_path / "ws"; ws.mkdir()
     marker = "<time-log>2026-05-26 09:00Z–09:20Z | feature · backend | sub work | 20m</time-log>"
@@ -154,9 +136,48 @@ def test_subagent_stop_logs_marker_without_enforcing(tmp_path):
     assert "sub work | 20m" in (ws / ".time-log.md").read_text()
 
 
-def test_subagent_stop_does_not_block_without_marker(tmp_path):
+def test_work_without_marker_synthesizes(tmp_path):
     ws = tmp_path / "ws"; ws.mkdir()
-    tpath = _transcript(tmp_path, "subagent did work but no marker", tool_uses=6)
+    tpath = _transcript(tmp_path, "did work but emitted no marker", tool_uses=6)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws)})
+    assert r.returncode == 0, r.stderr
+    content = (ws / ".time-log.md").read_text()
+    assert "| auto · ws |" in content
+    assert "tool calls" in content
+
+
+def test_skip_marker_suppresses_synthesis(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    tpath = _transcript(tmp_path, "<time-log>SKIP: only Q&A</time-log>", tool_uses=6)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws)})
+    assert r.returncode == 0, r.stderr
+    assert "auto ·" not in (ws / ".time-log.md").read_text()
+
+
+def test_zero_tools_logs_nothing(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    tpath = _transcript(tmp_path, "just chatting", tool_uses=0)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws)})
+    assert r.returncode == 0, r.stderr
+    assert "auto ·" not in (ws / ".time-log.md").read_text()
+
+
+def test_synthesize_disabled_logs_nothing(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    tpath = _transcript(tmp_path, "work no marker", tool_uses=6)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_SYNTHESIZE": "0"})
+    assert r.returncode == 0, r.stderr
+    assert "auto ·" not in (ws / ".time-log.md").read_text()
+
+
+def test_subagent_stop_synthesizes(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    tpath = _transcript(tmp_path, "subagent work no marker", tool_uses=6)
     r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "SubagentStop"},
                   {"CLAUDE_PROJECT_DIR": str(ws)})
     assert r.returncode == 0, r.stderr
+    assert "auto · ws |" in (ws / ".time-log.md").read_text()
