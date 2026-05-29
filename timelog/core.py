@@ -33,3 +33,26 @@ SKIP_RE = re.compile(r"<time-log>\s*SKIP\s*:\s*\S.*?</time-log>", re.DOTALL)
 
 def has_skip(text):
     return bool(SKIP_RE.search(text))
+
+
+def select_new_entries(candidates, existing):
+    """Return (all_valid_collapsed, new_unique_collapsed).
+
+    all_valid_collapsed: every candidate passing is_valid_entry (collapsed) —
+        caller uses this to decide whether the session produced any valid marker.
+    new_unique_collapsed: validated entries not in `existing` and not repeated
+        within this run, first-seen order.
+    """
+    valid = []
+    new = []
+    seen = set()
+    for entry in candidates:
+        collapsed = " ".join(entry.split())
+        if not collapsed or not is_valid_entry(collapsed):
+            continue
+        valid.append(collapsed)
+        if collapsed in existing or collapsed in seen:
+            continue
+        seen.add(collapsed)
+        new.append(collapsed)
+    return valid, new

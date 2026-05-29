@@ -53,3 +53,25 @@ def test_has_skip_requires_reason():
 
 def test_has_skip_false_when_absent():
     assert not has_skip("<time-log>2026-05-26 09:00Z–09:20Z | x · y | z | 20m</time-log>")
+
+
+from timelog.core import select_new_entries
+
+def test_select_filters_invalid_and_dedups():
+    candidates = [
+        "2026-05-26 09:00Z–09:20Z | refactor · workspace | a | 20m",
+        "prose fragment not an entry",
+        "2026-05-26 09:00Z–09:20Z | refactor · workspace | a | 20m",
+        "2026-05-26 10:00Z–10:10Z | ops · infra | b | 10m",
+    ]
+    existing = {"2026-05-26 10:00Z–10:10Z | ops · infra | b | 10m"}
+    valid, new = select_new_entries(candidates, existing)
+    assert valid == [
+        "2026-05-26 09:00Z–09:20Z | refactor · workspace | a | 20m",
+        "2026-05-26 09:00Z–09:20Z | refactor · workspace | a | 20m",
+        "2026-05-26 10:00Z–10:10Z | ops · infra | b | 10m",
+    ]
+    assert new == ["2026-05-26 09:00Z–09:20Z | refactor · workspace | a | 20m"]
+
+def test_select_empty():
+    assert select_new_entries([], set()) == ([], [])
