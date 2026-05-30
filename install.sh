@@ -29,11 +29,11 @@ chmod +x "$HOOK_DIR/claude_hook.py"
 python3 - "$HOOK_DIR/claude_hook.py" <<'PY'
 import sys
 p = sys.argv[1]
-s = open(p).read()
+s = open(p, encoding="utf-8").read()
 old = "from timelog import core"
 new = "sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))\nimport core"
 patched = s.replace(old, new)
-open(p, "w").write(patched)
+open(p, "w", encoding="utf-8").write(patched)
 PY
 
 # 2. /log command
@@ -48,7 +48,7 @@ import json, os, sys
 settings_path, hook_cmd = sys.argv[1], sys.argv[2]
 data = {}
 if os.path.exists(settings_path):
-    with open(settings_path) as f:
+    with open(settings_path, encoding="utf-8") as f:
         try:
             data = json.load(f)
         except json.JSONDecodeError:
@@ -70,7 +70,7 @@ ensure("Stop")
 ensure("PreCompact")
 ensure("SubagentStop")
 
-with open(settings_path, "w") as f:
+with open(settings_path, "w", encoding="utf-8") as f:
     json.dump(data, f, indent=2)
     f.write("\n")
 PY

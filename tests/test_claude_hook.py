@@ -25,12 +25,12 @@ def test_resolve_workspace_empty_when_neither(monkeypatch):
 
 def test_read_existing_skips_header_and_blanks(tmp_path):
     f = tmp_path / ".time-log.md"
-    f.write_text("# Time log\n\n## Entries\n\n2026-05-26 09:00Z–09:20Z | x · y | z | 20m\n")
+    f.write_text("# Time log\n\n## Entries\n\n2026-05-26 09:00Z–09:20Z | x · y | z | 20m\n", encoding="utf-8")
     assert read_existing_entries(str(f)) == {"2026-05-26 09:00Z–09:20Z | x · y | z | 20m"}
 
 
 def _write_jsonl(path, rows):
-    path.write_text("\n".join(json.dumps(r) for r in rows))
+    path.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
 
 
 def test_scan_collects_text_and_counts_tools(tmp_path):
@@ -64,7 +64,7 @@ def test_scan_captures_first_and_last_timestamps(tmp_path):
          "message": {"content": [{"type": "text", "text": "b"}]}},
     ]
     f = tmp_path / "t.jsonl"
-    f.write_text("\n".join(json.dumps(r) for r in rows))
+    f.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
     _text, n, first, last = scan_transcript(str(f))
     assert n == 1
     assert first.hour == 5 and first.minute == 30
@@ -88,7 +88,7 @@ def _transcript(tmp_path, assistant_text, tool_uses=0):
         content.append({"type": "tool_use", "name": "Bash"})
     rows = [{"type": "assistant", "message": {"content": content}}]
     f = tmp_path / "t.jsonl"
-    f.write_text("\n".join(json.dumps(r) for r in rows))
+    f.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
     return str(f)
 
 
@@ -99,19 +99,19 @@ def test_valid_marker_is_appended_and_passes(tmp_path):
     r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
                   {"CLAUDE_PROJECT_DIR": str(ws)})
     assert r.returncode == 0, r.stderr
-    assert "did thing | 20m" in (ws / ".time-log.md").read_text()
+    assert "did thing | 20m" in (ws / ".time-log.md").read_text(encoding="utf-8")
 
 
 def test_already_logged_marker_dedups_and_passes(tmp_path):
     ws = tmp_path / "ws"; ws.mkdir()
     entry = "2026-05-26 09:00Z–09:20Z | refactor · workspace | did thing | 20m"
-    (ws / ".time-log.md").write_text("# Time log\n\n## Entries\n\n" + entry + "\n")
+    (ws / ".time-log.md").write_text("# Time log\n\n## Entries\n\n" + entry + "\n", encoding="utf-8")
     marker = "<time-log>" + entry + "</time-log>"
     tpath = _transcript(tmp_path, marker, tool_uses=6)
     r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
                   {"CLAUDE_PROJECT_DIR": str(ws)})
     assert r.returncode == 0, r.stderr
-    assert (ws / ".time-log.md").read_text().count(entry) == 1
+    assert (ws / ".time-log.md").read_text(encoding="utf-8").count(entry) == 1
 
 
 def test_scan_skips_malformed_jsonl_line(tmp_path):
@@ -120,7 +120,7 @@ def test_scan_skips_malformed_jsonl_line(tmp_path):
         {"type": "text", "text": "first"}, {"type": "tool_use", "name": "Bash"}]}})
     good2 = json.dumps({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "name": "Edit"}]}})
-    f.write_text(good1 + "\nthis is not json\n" + good2 + "\n")
+    f.write_text(good1 + "\nthis is not json\n" + good2 + "\n", encoding="utf-8")
     text, tool_count, _f, _l = scan_transcript(str(f))
     assert "first" in text
     assert tool_count == 2
@@ -133,7 +133,7 @@ def test_subagent_stop_logs_marker_without_enforcing(tmp_path):
     r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "SubagentStop"},
                   {"CLAUDE_PROJECT_DIR": str(ws)})
     assert r.returncode == 0, r.stderr
-    assert "sub work | 20m" in (ws / ".time-log.md").read_text()
+    assert "sub work | 20m" in (ws / ".time-log.md").read_text(encoding="utf-8")
 
 
 def test_work_without_marker_synthesizes(tmp_path):
@@ -142,7 +142,7 @@ def test_work_without_marker_synthesizes(tmp_path):
     r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
                   {"CLAUDE_PROJECT_DIR": str(ws)})
     assert r.returncode == 0, r.stderr
-    content = (ws / ".time-log.md").read_text()
+    content = (ws / ".time-log.md").read_text(encoding="utf-8")
     assert "| auto · ws |" in content
     assert "tool calls" in content
 
@@ -153,7 +153,7 @@ def test_skip_marker_suppresses_synthesis(tmp_path):
     r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
                   {"CLAUDE_PROJECT_DIR": str(ws)})
     assert r.returncode == 0, r.stderr
-    assert "auto ·" not in (ws / ".time-log.md").read_text()
+    assert "auto ·" not in (ws / ".time-log.md").read_text(encoding="utf-8")
 
 
 def test_zero_tools_logs_nothing(tmp_path):
@@ -162,7 +162,7 @@ def test_zero_tools_logs_nothing(tmp_path):
     r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
                   {"CLAUDE_PROJECT_DIR": str(ws)})
     assert r.returncode == 0, r.stderr
-    assert "auto ·" not in (ws / ".time-log.md").read_text()
+    assert "auto ·" not in (ws / ".time-log.md").read_text(encoding="utf-8")
 
 
 def test_synthesize_disabled_logs_nothing(tmp_path):
@@ -171,7 +171,7 @@ def test_synthesize_disabled_logs_nothing(tmp_path):
     r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
                   {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_SYNTHESIZE": "0"})
     assert r.returncode == 0, r.stderr
-    assert "auto ·" not in (ws / ".time-log.md").read_text()
+    assert "auto ·" not in (ws / ".time-log.md").read_text(encoding="utf-8")
 
 
 def test_subagent_stop_synthesizes(tmp_path):
@@ -180,7 +180,7 @@ def test_subagent_stop_synthesizes(tmp_path):
     r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "SubagentStop"},
                   {"CLAUDE_PROJECT_DIR": str(ws)})
     assert r.returncode == 0, r.stderr
-    assert "auto · ws |" in (ws / ".time-log.md").read_text()
+    assert "auto · ws |" in (ws / ".time-log.md").read_text(encoding="utf-8")
 
 
 def test_systemmessage_echoes_logged_marker(tmp_path):
@@ -216,7 +216,7 @@ def test_no_stdout_when_nothing_logged(tmp_path):
 def test_no_stdout_when_marker_dedups(tmp_path):
     ws = tmp_path / "ws"; ws.mkdir()
     entry = "2026-05-26 09:00Z–09:20Z | refactor · workspace | did thing | 20m"
-    (ws / ".time-log.md").write_text("# Time log\n\n## Entries\n\n" + entry + "\n")
+    (ws / ".time-log.md").write_text("# Time log\n\n## Entries\n\n" + entry + "\n", encoding="utf-8")
     marker = "<time-log>" + entry + "</time-log>"
     tpath = _transcript(tmp_path, marker, tool_uses=6)
     r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
@@ -235,11 +235,11 @@ def test_synthesis_uses_transcript_timestamps_for_duration(tmp_path):
          "message": {"content": [{"type": "text", "text": "end"}]}},
     ]
     tpath = tmp_path / "ts.jsonl"
-    tpath.write_text("\n".join(json.dumps(r) for r in rows))
+    tpath.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
     r = _run_hook({"transcript_path": str(tpath), "cwd": str(ws), "hook_event_name": "Stop"},
                   {"CLAUDE_PROJECT_DIR": str(ws)})
     assert r.returncode == 0, r.stderr
-    content = (ws / ".time-log.md").read_text()
+    content = (ws / ".time-log.md").read_text(encoding="utf-8")
     assert "| auto · ws |" in content          # middle-dot scope
     assert "| 20m" in content                        # 05:30 -> 05:50 = 20 minutes
     assert "05:30Z–05:50Z" in content           # en-dash time range
