@@ -41,15 +41,23 @@ def resolve_workspace(cwd_from_input):
 
 
 def read_existing_entries(log_file):
+    # Legacy .time-log.md files written by the pre-UTF-8 hook are cp1252-encoded
+    # (en-dash 0x96, middle-dot 0xB7). Read UTF-8 first, fall back to cp1252 so a
+    # legacy file never crashes the hook (which must always exit 0).
     existing = set()
-    try:
-        with open(log_file, encoding="utf-8") as f:
-            for line in f:
-                s = line.strip()
-                if s and not s.startswith("#") and "|" in s:
-                    existing.add(s)
-    except OSError:
-        pass
+    for enc in ("utf-8", "cp1252"):
+        try:
+            with open(log_file, encoding=enc) as f:
+                for line in f:
+                    s = line.strip()
+                    if s and not s.startswith("#") and "|" in s:
+                        existing.add(s)
+            return existing
+        except UnicodeDecodeError:
+            existing.clear()
+            continue
+        except OSError:
+            return existing
     return existing
 
 
