@@ -43,7 +43,7 @@ def resolve_workspace(cwd_from_input):
 def read_existing_entries(log_file):
     existing = set()
     try:
-        with open(log_file) as f:
+        with open(log_file, encoding="utf-8") as f:
             for line in f:
                 s = line.strip()
                 if s and not s.startswith("#") and "|" in s:
@@ -57,7 +57,7 @@ def ensure_log_file(path):
     if os.path.exists(path):
         return True
     try:
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             f.write(LOG_HEADER)
         return True
     except OSError:
@@ -81,7 +81,7 @@ def scan_transcript(transcript_path):
     first_ts = None
     last_ts = None
     try:
-        with open(transcript_path) as f:
+        with open(transcript_path, encoding="utf-8") as f:
             for line in f:
                 try:
                     msg = json.loads(line)
@@ -169,7 +169,7 @@ def main():
 
     def _append(lines):
         try:
-            with open(log_file, "a") as f:
+            with open(log_file, "a", encoding="utf-8") as f:
                 for ln in lines:
                     f.write(ln + "\n")
             written.extend(lines)
