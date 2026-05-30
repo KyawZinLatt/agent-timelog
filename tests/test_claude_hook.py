@@ -29,6 +29,16 @@ def test_read_existing_skips_header_and_blanks(tmp_path):
     assert read_existing_entries(str(f)) == {"2026-05-26 09:00Z–09:20Z | x · y | z | 20m"}
 
 
+def test_read_existing_tolerates_legacy_cp1252(tmp_path):
+    # File written by the old pre-UTF-8 hook: en-dash 0x96, middle-dot 0xB7 (cp1252).
+    f = tmp_path / ".time-log.md"
+    f.write_text(
+        "# Time log\n\n## Entries\n\n2026-05-26 09:00Z–09:20Z | x · y | z | 20m\n",
+        encoding="cp1252",
+    )
+    assert read_existing_entries(str(f)) == {"2026-05-26 09:00Z–09:20Z | x · y | z | 20m"}
+
+
 def _write_jsonl(path, rows):
     path.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
 
