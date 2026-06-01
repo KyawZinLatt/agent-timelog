@@ -106,14 +106,32 @@ The reason MUST be non-empty (at least one non-whitespace character after the co
 ## 5. Auto-synthesis (adapter behavior, not wire format)
 
 When no valid marker is emitted and no SKIP is present, a conforming adapter MAY synthesize
-a generic entry automatically, using:
+an entry automatically. Two variants are defined.
+
+### 5.1 Generic synthesis (default)
 
 - `category` = `auto`
 - `scope` = sanitized workspace basename (fallback: `session`)
 - `summary` = `auto-logged <event>, <N> tool calls`  (no ` | `)
 - `duration` derived from first–last transcript timestamps; minimum 1m
 
-Synthesized entries MUST pass `ENTRY_RE` before being written.
+### 5.2 Subagent synthesis (SubagentStop)
+
+When the event is a subagent completion and the adapter knows the subagent's type, it
+SHOULD derive a meaningful summary from the subagent's own transcript instead of the
+generic form:
+
+- `category` = inferred from the subagent's tool-use histogram: any file-mutating tool
+  → `feature`; else Bash-dominant → `ops`; else read/search/web → `research`; else `auto`
+- `scope` = `subagent`
+- `summary` = `<agent-type>: <dispatch-prompt intent> (<N> tool calls)` — derived from the
+  subagent's dispatch prompt (its first user turn); truncated and ` | `-stripped
+- `duration` derived from first–last transcript timestamps; minimum 1m
+
+If the agent type is unknown or composition yields an invalid line, the adapter MUST fall
+back to §5.1.
+
+Both variants MUST pass `ENTRY_RE` before being written.
 
 ---
 

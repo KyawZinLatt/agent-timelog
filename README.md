@@ -28,8 +28,13 @@ Whenever it writes one or more entries, it echoes them back to you via a one-lin
 ### Subagent behavior
 
 Subagents (dispatched via `SubagentStop`) are logged the same way as the main agent.
-Markers must appear in the emitting agent's own response text. A subagent that does work
-without emitting a marker gets an auto-synthesized entry. Subagents are never blocked.
+A marker in the subagent's own response text is captured directly. A subagent that does
+work without emitting a marker gets a synthesized entry derived from its **own**
+transcript — `scope = subagent`, a category inferred from its tool use, and a summary
+built from its agent type and dispatch prompt (e.g.
+`claude-code-guide: researched the hook schema (7 tool calls)`). This works for any
+subagent, including third-party ones, because the logic lives in this hook rather than
+in the subagent. Subagents are never blocked.
 
 ---
 

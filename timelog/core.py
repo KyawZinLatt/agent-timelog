@@ -90,3 +90,59 @@ def format_duration(total_minutes):
 def build_entry(date, start, end, category, scope, summary, duration):
     """Assemble a canonical time-log line. Caller ensures fields are clean."""
     return f"{date} {start}Z–{end}Z | {category} · {scope} | {summary} | {duration}"
+
+
+WRITE_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
+OPS_TOOLS = frozenset({"Bash"})
+RESEARCH_TOOLS = frozenset({"Read", "Grep", "Glob", "LS", "WebFetch", "WebSearch"})
+
+SUBAGENT_SUMMARY_MAX = 100
+
+
+def infer_category(tool_counts):
+    """Map a {tool_name: count} histogram to a category token, deterministically.
+
+    Any file-mutating tool wins → 'feature'. Otherwise Bash-dominant → 'ops',
+    read/search/web → 'research'. Unknown-only or empty → 'auto'.
+    """
+    if not tool_counts:
+        return "auto"
+    writes = sum(n for t, n in tool_counts.items() if t in WRITE_TOOLS)
+    ops = sum(n for t, n in tool_counts.items() if t in OPS_TOOLS)
+    research = sum(n for t, n in tool_counts.items() if t in RESEARCH_TOOLS)
+    if writes:
+        return "feature"
+    if ops and ops >= research:
+        return "ops"
+    if research:
+        return "research"
+    return "auto"
+
+
+def compose_subagent_summary(agent_type, dispatch_prompt, tool_total):
+    """Build a one-line summary from agent type + dispatch intent + tool count.
+
+    Deterministic, no LLM. Strips ' | ' (the field separator), collapses
+    whitespace, and truncates so the whole line stays within budget.
+    """
+    label = " ".join((agent_type or "subagent").split()).replace("|", "/")
+    calls = f"{tool_total} tool call" + ("" if tool_total == 1 else "s")
+    suffix = f" ({calls})"
+
+    intent = ""
+    for line in (dispatch_prompt or "").splitlines():
+        stripped = line.strip()
+        if stripped:
+            intent = " ".join(stripped.split()).replace("|", "/")
+            break
+
+    if not intent:
+        return f"{label}{suffix}"
+
+    prefix = f"{label}: "
+    room = SUBAGENT_SUMMARY_MAX - len(prefix) - len(suffix)
+    if room < 10:
+        room = 10
+    if len(intent) > room:
+        intent = intent[: room - 1].rstrip() + "…"
+    return f"{prefix}{intent}{suffix}"
