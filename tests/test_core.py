@@ -1,4 +1,5 @@
 from timelog.core import extract_markers, is_valid_entry, has_skip, select_new_entries, sanitize_token, format_duration, build_entry
+from timelog.core import infer_category, compose_subagent_summary
 
 
 def test_extract_markers_returns_inner_text():
@@ -108,3 +109,50 @@ def test_build_entry_passes_validation():
                     "auto-logged Stop, 6 tool calls", "20m")
     assert is_valid_entry(e)
     assert "·" in e and "–" in e
+
+
+def test_infer_category_writes_to_feature():
+    assert infer_category({"Edit": 2, "Bash": 5}) == "feature"
+
+
+def test_infer_category_research_when_read_or_web_only():
+    assert infer_category({"WebFetch": 7}) == "research"
+    assert infer_category({"Read": 3, "Grep": 2}) == "research"
+
+
+def test_infer_category_ops_when_bash_dominant():
+    assert infer_category({"Bash": 5, "Read": 1}) == "ops"
+
+
+def test_infer_category_empty_is_auto():
+    assert infer_category({}) == "auto"
+
+
+def test_compose_subagent_summary_has_agent_intent_and_count():
+    s = compose_subagent_summary(
+        "claude-code-guide",
+        "Research the SubagentStop hook schema and report fields.",
+        7,
+    )
+    assert "claude-code-guide" in s
+    assert "Research the SubagentStop" in s
+    assert "7 tool calls" in s
+    assert " | " not in s
+
+
+def test_compose_subagent_summary_strips_pipe_and_singular_count():
+    s = compose_subagent_summary("worker", "do a | b | c thing", 1)
+    assert " | " not in s
+    assert "1 tool call" in s and "tool calls" not in s
+
+
+def test_compose_subagent_summary_truncates_long_intent():
+    s = compose_subagent_summary("worker", "x" * 500, 3)
+    assert len(s) <= 100
+    assert s.endswith("(3 tool calls)")
+
+
+def test_compose_subagent_summary_empty_dispatch_uses_agent_only():
+    s = compose_subagent_summary("worker", "", 4)
+    assert "worker" in s and "4 tool calls" in s
+    assert " | " not in s

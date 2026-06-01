@@ -137,6 +137,61 @@ def synthesize_entry(event, tool_count, project_dir, first_ts, last_ts):
     )
 
 
+def scan_subagent_detail(transcript_path):
+    """Extract the dispatch prompt (first user row) and a tool-name histogram.
+
+    Used only on the SubagentStop path to compose a meaningful summary.
+    """
+    dispatch = ""
+    tool_counts = {}
+    if not transcript_path or not os.path.exists(transcript_path):
+        return dispatch, tool_counts
+    try:
+        with open(transcript_path, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    msg = json.loads(line)
+                except ValueError:
+                    continue
+                mtype = msg.get("type")
+                content = msg.get("message", {}).get("content")
+                if mtype == "user" and not dispatch:
+                    if isinstance(content, str):
+                        dispatch = content
+                    elif isinstance(content, list):
+                        for c in content:
+                            if isinstance(c, dict) and c.get("type") == "text":
+                                dispatch = c.get("text", "")
+                                break
+                elif mtype == "assistant" and isinstance(content, list):
+                    for c in content:
+                        if isinstance(c, dict) and c.get("type") == "tool_use":
+                            name = c.get("name", "")
+                            tool_counts[name] = tool_counts.get(name, 0) + 1
+    except OSError:
+        return "", {}
+    return dispatch, tool_counts
+
+
+def synthesize_subagent_entry(agent_type, dispatch, tool_counts, first_ts, last_ts):
+    now = datetime.datetime.now(datetime.timezone.utc)
+    start = first_ts or now
+    end = last_ts or start
+    minutes = int(round((end - start).total_seconds() / 60))
+    tool_total = sum(tool_counts.values())
+    category = core.infer_category(tool_counts)
+    summary = core.compose_subagent_summary(agent_type, dispatch, tool_total)
+    return core.build_entry(
+        start.strftime("%Y-%m-%d"),
+        start.strftime("%H:%M"),
+        end.strftime("%H:%M"),
+        category,
+        "subagent",
+        summary,
+        core.format_duration(minutes),
+    )
+
+
 def emit_summary(written):
     """Echo written entries back to the user via the Stop-hook systemMessage channel."""
     n = len(written)
@@ -194,7 +249,17 @@ def main():
         and tool_count >= MIN_WORK_THRESHOLD
         and SYNTHESIZE
     ):
-        entry = synthesize_entry(event, tool_count, project_dir, first_ts, last_ts)
+        entry = None
+        agent_type = data.get("agent_type", "")
+        if event == "SubagentStop" and agent_type:
+            dispatch, tool_counts = scan_subagent_detail(transcript_path)
+            entry = synthesize_subagent_entry(
+                agent_type, dispatch, tool_counts, first_ts, last_ts
+            )
+            if not core.is_valid_entry(entry):
+                entry = None
+        if entry is None:
+            entry = synthesize_entry(event, tool_count, project_dir, first_ts, last_ts)
         if core.is_valid_entry(entry) and entry not in existing:
             _append([entry])
 

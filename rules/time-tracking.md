@@ -32,7 +32,7 @@ Reserve SKIP for sessions with genuinely nothing to record — a monitoring tick
 
 ## Subagents
 
-Subagents auto-log too (the hook fires on `SubagentStop`) but are NEVER blocked. A subagent's marker must live in that subagent's own final text to be captured; otherwise its work simply rolls up into the parent session's entry.
+Subagents auto-log too (the hook fires on `SubagentStop`) but are NEVER blocked. A subagent's marker must live in that subagent's own final text to be captured. If a subagent emits no marker, the hook synthesizes a meaningful entry from the subagent's own transcript (`scope = subagent`, category inferred from its tool use, summary from its agent type and dispatch prompt) — so its work is recorded distinctly, not rolled up into the parent.
 
 ## Knobs (environment variables)
 
