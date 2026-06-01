@@ -75,19 +75,32 @@ with open(settings_path, "w") as f:
     f.write("\n")
 PY
 
-# 4. Rule append (idempotent via HTML comment markers)
+# 4. Rule injection (idempotent via HTML comment markers).
+# If the markers already exist, refresh the block in place so rule-text edits
+# propagate on reinstall; otherwise append a fresh block.
 RULE_BEGIN="<!-- agent-timelog:begin -->"
 RULE_END="<!-- agent-timelog:end -->"
-if [ -f "$RULE_FILE" ] && grep -qF "$RULE_BEGIN" "$RULE_FILE"; then
-  echo "rule already present in $RULE_FILE — skipping"
-else
-  {
-    echo ""
-    echo "$RULE_BEGIN"
-    cat "$SRC/rules/time-tracking.md"
-    echo "$RULE_END"
-  } >> "$RULE_FILE"
-  echo "rule appended to $RULE_FILE"
-fi
+python3 - "$RULE_FILE" "$SRC/rules/time-tracking.md" "$RULE_BEGIN" "$RULE_END" <<'PY'
+import os, re, sys
+
+rule_file, rule_src, begin, end = sys.argv[1:5]
+body = open(rule_src).read().rstrip("\n")
+block = f"{begin}\n{body}\n{end}"
+
+existing = open(rule_file).read() if os.path.exists(rule_file) else ""
+
+if begin in existing and end in existing:
+    pattern = re.compile(re.escape(begin) + r".*?" + re.escape(end), re.DOTALL)
+    updated = pattern.sub(lambda _m: block, existing, count=1)
+    if updated == existing:
+        print(f"  rule already current in {rule_file}")
+    else:
+        open(rule_file, "w").write(updated)
+        print(f"  rule refreshed in {rule_file}")
+else:
+    sep = "" if existing.endswith("\n") or existing == "" else "\n"
+    open(rule_file, "a").write(f"{sep}\n{block}\n")
+    print(f"  rule appended to {rule_file}")
+PY
 
 echo "Done. Start a new Claude Code session to activate."
