@@ -170,6 +170,28 @@ ceiling (the reference adapter: `TIMELOG_SKIP_MAX_TOOLS`, default 5) the SKIP SH
 blocked **once** — asking the agent to replace it with a real marker or re-emit the SKIP to
 confirm — and MUST NOT block the retry, so a genuine no-op costs at most one extra turn.
 
+### 5.4 Deterministic correction (date + scope)
+
+An adapter SHOULD NOT trust the date or scope string an agent writes; both are
+cheap to get wrong and expensive to audit in a shared log. The reference Claude Code
+adapter rewrites them deterministically before validation/logging, and applies the
+same rewrites to its own synthesized lines:
+
+- **Date.** A canonical line whose date is the current UTC date or the day before is
+  kept verbatim (allowing a session that crosses midnight). Any other date — stale,
+  future, or shape-valid-but-impossible (e.g. `2026-13-40`) — has its date field
+  rewritten to today's UTC date, preserving times and duration. The adapter MUST NOT
+  write a future-dated or more-than-one-day-stale entry. (Synthesized lines derive their
+  date from the system clock / transcript and so are already trustworthy.)
+- **Scope.** The scope is normalized to identify its workspace. Given a workspace slug
+  (the slugified workspace-directory basename: lowercased, non-alphanumerics → hyphen,
+  repeats collapsed), a scope that already equals the slug or begins with `<slug>-` is
+  kept verbatim; otherwise the slug is prepended (`backend` → `<slug>-backend`). A bare
+  workspace-level scope MAY additionally gain a conservative `-<subdir>` repo suffix when
+  every write in the session landed under a single immediate subdirectory of the
+  workspace. The same normalization applies to synthesized and subagent lines (a subagent
+  reads `<slug>-subagent`), so a shared global log stays attributable.
+
 ---
 
 ## 6. Deduplication

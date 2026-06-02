@@ -1,6 +1,9 @@
+import datetime
+
 from timelog.core import extract_markers, is_valid_entry, has_skip, select_new_entries, sanitize_token, format_duration, build_entry
 from timelog.core import infer_category, compose_subagent_summary, compose_session_summary
 from timelog.core import entry_summary, is_lazy_summary, filter_quality, skip_exempts_block
+from timelog.core import correct_entry_date, normalize_scope_token, normalize_scope, dominant_subdir
 
 
 def test_extract_markers_returns_inner_text():
@@ -224,8 +227,15 @@ def test_is_lazy_summary_flags_tool_call_suffix():
 
 def test_is_lazy_summary_flags_synthesis_bodies():
     assert is_lazy_summary("auto-logged Stop, 5 tool calls")
+    assert is_lazy_summary("auto-logged SubagentStop, 9 tool calls")
     assert is_lazy_summary("ran 3 commands")
     assert is_lazy_summary("read/searched 4 files")
+
+
+def test_is_lazy_summary_flags_empty_and_whitespace():
+    assert is_lazy_summary("")
+    assert is_lazy_summary("   ")
+    assert is_lazy_summary("\t\n")
 
 
 def test_is_lazy_summary_flags_generic_and_short():
@@ -264,3 +274,124 @@ def test_skip_does_not_exempt_high_activity():
 def test_skip_exempts_block_respects_custom_ceiling():
     assert skip_exempts_block(4, 2) is False
     assert skip_exempts_block(2, 2) is True
+
+
+# --- A. date correction (kills the wrong-year bug) ---
+
+TODAY = datetime.date(2026, 6, 2)
+
+
+def test_correct_date_rewrites_wrong_year():
+    # the production defect: subagent dated 2025 when it was 2026
+    bad = "2025-06-02 09:00Z–09:20Z | feature · ws | real work here | 20m"
+    fixed, old = correct_entry_date(bad, TODAY)
+    assert old == "2025-06-02"
+    assert fixed == "2026-06-02 09:00Z–09:20Z | feature · ws | real work here | 20m"
+
+
+def test_correct_date_accepts_today():
+    e = "2026-06-02 09:00Z–09:20Z | feature · ws | real work here | 20m"
+    assert correct_entry_date(e, TODAY) == (e, None)
+
+
+def test_correct_date_accepts_yesterday_for_midnight_crossing():
+    e = "2026-06-01 23:50Z–00:10Z | feature · ws | crossed midnight | 20m"
+    assert correct_entry_date(e, TODAY) == (e, None)
+
+
+def test_correct_date_rewrites_future():
+    bad = "2026-06-05 09:00Z–09:20Z | feature · ws | real work here | 20m"
+    fixed, old = correct_entry_date(bad, TODAY)
+    assert old == "2026-06-05"
+    assert fixed.startswith("2026-06-02 ")
+
+
+def test_correct_date_rewrites_two_days_stale():
+    bad = "2026-05-31 09:00Z–09:20Z | feature · ws | real work here | 20m"
+    fixed, old = correct_entry_date(bad, TODAY)
+    assert old == "2026-05-31"
+    assert fixed.startswith("2026-06-02 ")
+
+
+def test_correct_date_rewrites_impossible_date():
+    # shape passes ENTRY_RE (\d{4}-\d{2}-\d{2}) but is not a real calendar date
+    bad = "2026-13-40 09:00Z–09:20Z | feature · ws | real work here | 20m"
+    fixed, old = correct_entry_date(bad, TODAY)
+    assert old == "2026-13-40"
+    assert fixed.startswith("2026-06-02 ")
+
+
+def test_correct_date_leaves_noncanonical_untouched():
+    assert correct_entry_date("not an entry", TODAY) == ("not an entry", None)
+
+
+# --- B. scope normalization (enforce workspace-repo) ---
+
+SLUG = "dev-server-setup"
+
+
+def test_normalize_scope_token_prepends_bare_repo():
+    assert normalize_scope_token("backend", SLUG) == "dev-server-setup-backend"
+
+
+def test_normalize_scope_token_prepends_workspace_literal():
+    assert normalize_scope_token("workspace", SLUG) == "dev-server-setup-workspace"
+
+
+def test_normalize_scope_token_passthrough_when_already_prefixed():
+    assert normalize_scope_token("dev-server-setup-backend", SLUG) == "dev-server-setup-backend"
+
+
+def test_normalize_scope_token_passthrough_when_equals_slug():
+    assert normalize_scope_token("dev-server-setup", SLUG) == "dev-server-setup"
+
+
+def test_normalize_scope_token_boundary_not_bare_prefix():
+    # slug "dev" must not swallow an unrelated scope "developer"
+    assert normalize_scope_token("developer", "dev") == "dev-developer"
+
+
+def test_normalize_scope_token_repo_suffix_only_on_bare_slug():
+    # bare slug + a dominant subdir -> append; explicit suffix left alone
+    assert normalize_scope_token("dev-server-setup", SLUG, repo_suffix="api") == "dev-server-setup-api"
+    assert normalize_scope_token("backend", SLUG, repo_suffix="api") == "dev-server-setup-backend"
+
+
+def test_normalize_scope_token_repo_suffix_skips_when_equal_to_slug():
+    assert normalize_scope_token("dev-server-setup", SLUG, repo_suffix="dev-server-setup") == "dev-server-setup"
+
+
+def test_normalize_scope_rewrites_entry_scope_only():
+    e = "2026-06-02 09:00Z–09:20Z | feature · backend | real work here | 20m"
+    out = normalize_scope(e, SLUG)
+    assert out == "2026-06-02 09:00Z–09:20Z | feature · dev-server-setup-backend | real work here | 20m"
+
+
+def test_normalize_scope_subagent_token():
+    e = "2026-06-02 09:00Z–09:20Z | research · subagent | did research | 20m"
+    out = normalize_scope(e, "ws")
+    assert "· ws-subagent |" in out
+
+
+def test_normalize_scope_leaves_noncanonical_untouched():
+    assert normalize_scope("garbage line", SLUG) == "garbage line"
+
+
+def test_dominant_subdir_single_shared():
+    assert dominant_subdir(["timelog", "timelog"]) == "timelog"
+
+
+def test_dominant_subdir_ambiguous_when_mixed():
+    assert dominant_subdir(["timelog", "tests"]) is None
+
+
+def test_dominant_subdir_none_when_root_present():
+    assert dominant_subdir(["timelog", ""]) is None
+
+
+def test_dominant_subdir_none_when_empty():
+    assert dominant_subdir([]) is None
+
+
+def test_dominant_subdir_slugifies():
+    assert dominant_subdir(["My Dir", "My Dir"]) == "my-dir"

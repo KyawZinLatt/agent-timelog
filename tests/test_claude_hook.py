@@ -1,7 +1,13 @@
+import datetime
 import json
 import os
 import subprocess
 import sys
+
+# Markers carry today's UTC date so the date-correction rewrite is a no-op; the
+# scope is pre-normalized to the tmp workspace slug "ws" so dedup matches what the
+# hardened hook writes.
+TODAY = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
 
 from timelog.claude_hook import resolve_workspace, read_existing_entries, scan_transcript
 
@@ -150,7 +156,7 @@ def test_valid_marker_is_appended_and_passes(tmp_path):
 
 def test_already_logged_marker_dedups_and_passes(tmp_path):
     ws = tmp_path / "ws"; ws.mkdir()
-    entry = "2026-05-26 09:00Z–09:20Z | refactor · workspace | did thing | 20m"
+    entry = f"{TODAY} 09:00Z–09:20Z | refactor · ws | did thing | 20m"
     (ws / ".time-log.md").write_text("# Time log\n\n## Entries\n\n" + entry + "\n", encoding="utf-8")
     marker = "<time-log>" + entry + "</time-log>"
     tpath = _transcript(tmp_path, marker, tool_uses=6)
@@ -158,6 +164,45 @@ def test_already_logged_marker_dedups_and_passes(tmp_path):
                   {"CLAUDE_PROJECT_DIR": str(ws)})
     assert r.returncode == 0, r.stderr
     assert (ws / ".time-log.md").read_text(encoding="utf-8").count(entry) == 1
+
+
+def test_marker_scope_prepended_with_workspace_slug(tmp_path):
+    # bare repo scope "backend" gets the workspace slug prepended end-to-end
+    ws = tmp_path / "dev-server-setup"; ws.mkdir()
+    marker = f"<time-log>{TODAY} 09:00Z–09:20Z | feature · backend | real work done | 20m</time-log>"
+    tpath = _transcript(tmp_path, marker, tool_uses=4)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws)})
+    assert r.returncode == 0, r.stderr
+    assert "| feature · dev-server-setup-backend |" in (ws / ".time-log.md").read_text(encoding="utf-8")
+
+
+def test_marker_scope_passthrough_when_already_workspace_prefixed(tmp_path):
+    ws = tmp_path / "dev-server-setup"; ws.mkdir()
+    marker = (f"<time-log>{TODAY} 09:00Z–09:20Z | feature · dev-server-setup-backend | "
+              f"real work done | 20m</time-log>")
+    tpath = _transcript(tmp_path, marker, tool_uses=4)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws)})
+    assert r.returncode == 0, r.stderr
+    content = (ws / ".time-log.md").read_text(encoding="utf-8")
+    assert "| feature · dev-server-setup-backend |" in content
+    assert "dev-server-setup-dev-server-setup" not in content
+
+
+def test_marker_wrong_year_is_corrected_end_to_end(tmp_path):
+    # the production defect: a 2025-dated marker emitted in 2026. The date is
+    # rewritten to today (UTC) and a stderr note is printed; the bad date never lands.
+    ws = tmp_path / "ws"; ws.mkdir()
+    marker = "<time-log>2020-01-01 09:00Z–09:20Z | feature · ws | real work done | 20m</time-log>"
+    tpath = _transcript(tmp_path, marker, tool_uses=4)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws)})
+    assert r.returncode == 0, r.stderr
+    content = (ws / ".time-log.md").read_text(encoding="utf-8")
+    assert f"{TODAY} 09:00Z–09:20Z | feature · ws | real work done | 20m" in content
+    assert "2020-01-01" not in content
+    assert f"corrected date 2020-01-01 -> {TODAY}" in r.stderr
 
 
 def test_scan_skips_malformed_jsonl_line(tmp_path):
@@ -244,7 +289,7 @@ def test_subagent_rich_summary_uses_dispatch_and_agent_type(tmp_path):
                   {"CLAUDE_PROJECT_DIR": str(ws)})
     assert r.returncode == 0, r.stderr
     content = (ws / ".time-log.md").read_text(encoding="utf-8")
-    assert "| research · subagent |" in content
+    assert "| research · ws-subagent |" in content
     assert "claude-code-guide" in content
     assert "Research the SubagentStop" in content
     assert "auto · ws" not in content
@@ -258,7 +303,7 @@ def test_subagent_category_feature_when_writes(tmp_path):
                    "hook_event_name": "SubagentStop", "agent_type": "general-purpose"},
                   {"CLAUDE_PROJECT_DIR": str(ws)})
     assert r.returncode == 0, r.stderr
-    assert "| feature · subagent |" in (ws / ".time-log.md").read_text(encoding="utf-8")
+    assert "| feature · ws-subagent |" in (ws / ".time-log.md").read_text(encoding="utf-8")
 
 
 def test_stop_event_ignores_subagent_path(tmp_path):
@@ -347,7 +392,7 @@ def test_no_stdout_when_nothing_logged(tmp_path):
 
 def test_no_stdout_when_marker_dedups(tmp_path):
     ws = tmp_path / "ws"; ws.mkdir()
-    entry = "2026-05-26 09:00Z–09:20Z | refactor · workspace | did thing | 20m"
+    entry = f"{TODAY} 09:00Z–09:20Z | refactor · ws | did thing | 20m"
     (ws / ".time-log.md").write_text("# Time log\n\n## Entries\n\n" + entry + "\n", encoding="utf-8")
     marker = "<time-log>" + entry + "</time-log>"
     tpath = _transcript(tmp_path, marker, tool_uses=6)
@@ -359,8 +404,8 @@ def test_no_stdout_when_marker_dedups(tmp_path):
 
 # --- Configurable log destination (TIMELOG_DEST: local | global | both) ---
 
-_MARKER = "<time-log>2026-05-26 09:00Z–09:20Z | refactor · workspace | dest thing | 20m</time-log>"
-_ENTRY = "2026-05-26 09:00Z–09:20Z | refactor · workspace | dest thing | 20m"
+_ENTRY = f"{TODAY} 09:00Z–09:20Z | refactor · ws | dest thing | 20m"
+_MARKER = f"<time-log>{_ENTRY}</time-log>"
 
 
 def test_dest_default_is_local_only(tmp_path):
