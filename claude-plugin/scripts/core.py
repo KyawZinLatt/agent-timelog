@@ -61,6 +61,60 @@ def select_new_entries(candidates, existing):
     return valid, new
 
 
+def entry_summary(entry):
+    """Return the summary (3rd) field of a canonical entry, or '' if unparseable.
+
+    The format forbids ' | ' inside a summary, so a valid line splits into
+    exactly four ' | '-delimited fields and parts[2] is the summary.
+    """
+    parts = " ".join(entry.split()).split(" | ")
+    return parts[2] if len(parts) == 4 else ""
+
+
+LAZY_SUMMARY_MIN_LEN = 8
+LAZY_GENERIC = frozenset(
+    {"auto", "work", "stuff", "misc", "task", "session", "done", "na", "n/a", "todo"}
+)
+# Synthesis tells: the "(N tool calls)" suffix this hook itself appends, the
+# generic "auto-logged …" line, and the deterministic "ran N commands" /
+# "read/searched N files" bodies. An agent describing real work writes none of these.
+LAZY_SUMMARY_RE = re.compile(
+    r"\b\d+\s+tool\s+calls?\b"
+    r"|^auto-logged\b"
+    r"|^ran\s+\d+\s+commands?\b"
+    r"|^read/searched\s+\d+\s+files?\b",
+    re.IGNORECASE,
+)
+
+
+def is_lazy_summary(summary):
+    """True if a summary looks synthesized or generic rather than real work.
+
+    Gates agent-emitted markers on the enforce path so a junk or copy-of-synthesis
+    summary is treated as absent. Heuristic only — no semantic understanding.
+    """
+    s = " ".join(summary.split())
+    if len(s) < LAZY_SUMMARY_MIN_LEN:
+        return True
+    if s.lower() in LAZY_GENERIC:
+        return True
+    return bool(LAZY_SUMMARY_RE.search(s))
+
+
+def filter_quality(candidates):
+    """Collapsed candidates that are valid canonical entries with non-lazy summaries.
+
+    The enforce path uses this to treat invalid or synthesized/generic markers as
+    absent — both for the block decision and for what actually gets logged.
+    """
+    out = []
+    for entry in candidates:
+        collapsed = " ".join(entry.split())
+        if is_valid_entry(collapsed) and not is_lazy_summary(entry_summary(collapsed)):
+            out.append(collapsed)
+    return out
+
+
 def sanitize_token(value, fallback):
     """Coerce a string to a valid category/scope token: lowercase letters + hyphens."""
     lowered = "".join(

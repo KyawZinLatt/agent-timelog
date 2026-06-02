@@ -149,6 +149,20 @@ back to §5.1.
 
 Both variants MUST pass `ENTRY_RE` before being written.
 
+### 5.3 Optional enforcement (adapter behavior)
+
+An adapter MAY offer an opt-in *enforce* mode that pressures the agent to emit a real marker
+instead of relying on synthesis. When enabled, on the main stop event (not subagent stops,
+not pre-compaction) a working session that produced no quality marker SHOULD be blocked
+**once** — asking the agent to emit a canonical marker or a SKIP — and MUST NOT block the
+retry, falling through to §5.1 synthesis so the adapter is never permanently blocking.
+
+A *quality* marker is a valid `ENTRY_RE` line whose summary is not "lazy". A summary is lazy
+when it merely restates the synthesis shape (`ran <K> commands`, `read/searched <K> files`,
+any summary containing `(<N> tool calls)`, or `auto-logged …`), is a generic single token
+(`auto`, `work`, `done`, …), or is shorter than a small minimum. Lazy markers are treated as
+absent for both the block decision and for logging.
+
 ---
 
 ## 6. Deduplication

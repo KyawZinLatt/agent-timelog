@@ -1,5 +1,6 @@
 from timelog.core import extract_markers, is_valid_entry, has_skip, select_new_entries, sanitize_token, format_duration, build_entry
 from timelog.core import infer_category, compose_subagent_summary, compose_session_summary
+from timelog.core import entry_summary, is_lazy_summary, filter_quality
 
 
 def test_extract_markers_returns_inner_text():
@@ -200,3 +201,48 @@ def test_compose_session_summary_truncates_to_budget():
     s = compose_session_summary(["x" * 200 + ".py"], 0, 0, 3)
     assert len(s) <= 100
     assert s.endswith("(3 tool calls)")
+
+
+# --- enforce path: summary extraction + lazy-marker quality gate (#2/#3) ---
+
+VALID = "2026-06-02 09:40Z–09:41Z | ops · dev-server | started Vite dev server, verified port | 1m"
+
+
+def test_entry_summary_extracts_third_field():
+    assert entry_summary(VALID) == "started Vite dev server, verified port"
+
+
+def test_entry_summary_empty_for_unparseable():
+    assert entry_summary("not a canonical line") == ""
+
+
+def test_is_lazy_summary_flags_tool_call_suffix():
+    # the synthesis tell: "(N tool calls)"
+    assert is_lazy_summary("ran 3 commands (3 tool calls)")
+    assert is_lazy_summary("edited a.py, b.py (7 tool calls)")
+
+
+def test_is_lazy_summary_flags_synthesis_bodies():
+    assert is_lazy_summary("auto-logged Stop, 5 tool calls")
+    assert is_lazy_summary("ran 3 commands")
+    assert is_lazy_summary("read/searched 4 files")
+
+
+def test_is_lazy_summary_flags_generic_and_short():
+    assert is_lazy_summary("auto")
+    assert is_lazy_summary("work")
+    assert is_lazy_summary("done")
+    assert is_lazy_summary("x")  # too short
+
+
+def test_is_lazy_summary_accepts_real_descriptions():
+    assert not is_lazy_summary("started Vite dev server, verified port")
+    assert not is_lazy_summary("fixed token expiry off-by-one in auth middleware")
+    assert not is_lazy_summary("answered question on enforcement design")
+
+
+def test_filter_quality_keeps_only_valid_nonlazy_collapsed():
+    lazy = "<n>".replace("<n>", "2026-06-02 09:40Z–09:41Z | ops · dev-server | ran 3 commands (3 tool calls) | 1m")
+    out = filter_quality([VALID, lazy, "garbage", "  " + VALID + "  "])
+    # VALID kept (collapsed, deduped not required here), lazy + garbage dropped
+    assert out == [VALID, VALID]

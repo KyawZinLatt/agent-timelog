@@ -42,5 +42,6 @@ Subagents auto-log too (the hook fires on `SubagentStop`) but are NEVER blocked.
 | `TIMELOG_SYNTHESIZE` | `1` | Set to `0` to log only agent-emitted markers (disable auto-synthesis). |
 | `TIMELOG_DEST` | `local` | Destination: `local` (per-workspace), `global` (one central file), or `both`. |
 | `TIMELOG_GLOBAL_PATH` | `~/.claude/.time-log.md` | Global file used when `TIMELOG_DEST` is `global` or `both`. |
+| `TIMELOG_ENFORCE` | `0` | `1` = require a real marker. On `Stop`, a working session with no quality marker is blocked **once** (you must emit a marker or `SKIP`); the retry falls through to synthesis. Lazy/synthesized-looking summaries are rejected as absent. Subagents and `PreCompact` are never blocked. |
 
 Hook: `$HOME/.claude/hooks/timelog/claude_hook.py`. Data file: `<workspace>/.time-log.md` (local), and/or the global file above per `TIMELOG_DEST` (gitignored by this tool; never committed automatically).
