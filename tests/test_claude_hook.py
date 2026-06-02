@@ -187,7 +187,7 @@ def test_work_without_marker_synthesizes(tmp_path):
     ws = tmp_path / "ws"; ws.mkdir()
     tpath = _transcript(tmp_path, "did work but emitted no marker", tool_uses=6)
     r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
-                  {"CLAUDE_PROJECT_DIR": str(ws)})
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_ENFORCE": "0"})
     assert r.returncode == 0, r.stderr
     content = (ws / ".time-log.md").read_text(encoding="utf-8")
     assert "| ops · ws |" in content
@@ -217,7 +217,7 @@ def test_synthesize_disabled_logs_nothing(tmp_path):
     ws = tmp_path / "ws"; ws.mkdir()
     tpath = _transcript(tmp_path, "work no marker", tool_uses=6)
     r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
-                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_SYNTHESIZE": "0"})
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_SYNTHESIZE": "0", "TIMELOG_ENFORCE": "0"})
     assert r.returncode == 0, r.stderr
     assert "auto ·" not in (ws / ".time-log.md").read_text(encoding="utf-8")
 
@@ -265,7 +265,7 @@ def test_stop_event_ignores_subagent_path(tmp_path):
     tpath = _subagent_transcript(tmp_path, "some dispatch", ["WebFetch"] * 3)
     r = _run_hook({"transcript_path": tpath, "cwd": str(ws),
                    "hook_event_name": "Stop", "agent_type": "claude-code-guide"},
-                  {"CLAUDE_PROJECT_DIR": str(ws)})
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_ENFORCE": "0"})
     assert r.returncode == 0, r.stderr
     content = (ws / ".time-log.md").read_text(encoding="utf-8")
     assert "| research · ws |" in content
@@ -280,7 +280,7 @@ def test_main_synth_feature_when_edits(tmp_path):
         ("Bash", {"command": "pytest"}),
     ])
     r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
-                  {"CLAUDE_PROJECT_DIR": str(ws)})
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_ENFORCE": "0"})
     assert r.returncode == 0, r.stderr
     content = (ws / ".time-log.md").read_text(encoding="utf-8")
     assert "| feature · ws |" in content
@@ -293,7 +293,7 @@ def test_main_synth_research_when_reads(tmp_path):
     tpath = _session_transcript(tmp_path, [
         ("Read", {"file_path": "/a"}), ("Grep", {}), ("Read", {"file_path": "/b"})])
     r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
-                  {"CLAUDE_PROJECT_DIR": str(ws)})
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_ENFORCE": "0"})
     assert r.returncode == 0, r.stderr
     content = (ws / ".time-log.md").read_text(encoding="utf-8")
     assert "| research · ws |" in content
@@ -305,7 +305,7 @@ def test_main_synth_falls_back_to_auto_for_unknown_tools(tmp_path):
     ws = tmp_path / "ws"; ws.mkdir()
     tpath = _session_transcript(tmp_path, [("TodoWrite", {}), ("TodoWrite", {})])
     r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
-                  {"CLAUDE_PROJECT_DIR": str(ws)})
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_ENFORCE": "0"})
     assert r.returncode == 0, r.stderr
     content = (ws / ".time-log.md").read_text(encoding="utf-8")
     assert "| auto · ws |" in content
@@ -327,7 +327,7 @@ def test_systemmessage_echoes_synthesized_entry(tmp_path):
     ws = tmp_path / "ws"; ws.mkdir()
     tpath = _transcript(tmp_path, "did work but emitted no marker", tool_uses=6)
     r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
-                  {"CLAUDE_PROJECT_DIR": str(ws)})
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_ENFORCE": "0"})
     assert r.returncode == 0, r.stderr
     out = json.loads(r.stdout)
     assert "ops · ws |" in out["systemMessage"]
@@ -447,7 +447,7 @@ def test_synthesis_uses_transcript_timestamps_for_duration(tmp_path):
     tpath = tmp_path / "ts.jsonl"
     tpath.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
     r = _run_hook({"transcript_path": str(tpath), "cwd": str(ws), "hook_event_name": "Stop"},
-                  {"CLAUDE_PROJECT_DIR": str(ws)})
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_ENFORCE": "0"})
     assert r.returncode == 0, r.stderr
     content = (ws / ".time-log.md").read_text(encoding="utf-8")
     assert "| ops · ws |" in content            # Bash-only → ops; middle-dot scope
@@ -566,3 +566,15 @@ def test_default_off_never_blocks_and_synthesizes(tmp_path):
     assert r.returncode == 0, r.stderr
     assert not _is_block(r.stdout)
     assert (ws / ".time-log.md").exists()
+
+
+def test_default_is_enforce_on(tmp_path):
+    # Shipped default flipped to on: a working Stop with no marker blocks once,
+    # with no TIMELOG_ENFORCE present in the environment.
+    ws = tmp_path / "ws"; ws.mkdir()
+    tpath = _transcript(tmp_path, "did work, no marker", tool_uses=4)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws)})
+    assert r.returncode == 0, r.stderr
+    assert _is_block(r.stdout)
+    assert not (ws / ".time-log.md").exists()

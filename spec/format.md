@@ -151,8 +151,9 @@ Both variants MUST pass `ENTRY_RE` before being written.
 
 ### 5.3 Optional enforcement (adapter behavior)
 
-An adapter MAY offer an opt-in *enforce* mode that pressures the agent to emit a real marker
-instead of relying on synthesis. When enabled, on the main stop event (not subagent stops,
+An adapter MAY offer an *enforce* mode that pressures the agent to emit a real marker
+instead of relying on synthesis. (The reference Claude Code adapter enables it by default;
+`TIMELOG_ENFORCE=0` disables it.) When enabled, on the main stop event (not subagent stops,
 not pre-compaction) a working session that produced no quality marker SHOULD be blocked
 **once** — asking the agent to emit a canonical marker or a SKIP — and MUST NOT block the
 retry, falling through to §5.1 synthesis so the adapter is never permanently blocking.

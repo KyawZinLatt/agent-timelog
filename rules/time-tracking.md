@@ -1,6 +1,6 @@
 # Time tracking (agent-timelog)
 
-This workspace uses **agent-timelog** to record how time is spent per session. A Stop / PreCompact / SubagentStop hook writes entries to `<workspace>/.time-log.md`. **The hook never blocks — it always exits 0.** It logs the markers you emit; if you emit none, it auto-synthesizes a generic entry so every working session is recorded.
+This workspace uses **agent-timelog** to record how time is spent per session. A Stop / PreCompact / SubagentStop hook writes entries to `<workspace>/.time-log.md`. It logs the markers you emit; if you emit none, it auto-synthesizes a generic entry so every working session is recorded. **By default it enforces a real marker:** on session end (Stop) it blocks **once** to ask you for one if you did work and emitted none — so emit a marker (or a SKIP) in your final response. It blocks at most once, never blocks subagents or `/compact`, and always exits 0. (Set `TIMELOG_ENFORCE=0` to disable enforcement.)
 
 ## How to log your time (preferred path)
 
@@ -22,7 +22,7 @@ Agent-authored markers are preferred because their summaries are meaningful. If 
 
 1. Parses every `<time-log>…</time-log>` marker from the session, validates each against the canonical format, dedups, and appends new valid ones.
 2. If you emitted no valid marker AND did not opt out AND the session made at least `TIMELOG_MIN_TOOLS` tool calls, it SYNTHESIZES one entry from the transcript. Category + summary are inferred from your tool use — files edited → `feature · edited a.py, b.py (N tool calls)`, commands run → `ops · ran K commands (N tool calls)`, files read → `research · read/searched K files (N tool calls)` — falling back to a generic `auto · auto-logged Stop, N tool calls` line only when no recognizable tool activity is present.
-3. Always exits 0. It never blocks session end or `/compact`, and never blocks a subagent.
+3. Always exits 0. With enforcement on (default), it may block the main `Stop` event **once** to request a marker; it never blocks the retry, never blocks `/compact`, and never blocks a subagent. With `TIMELOG_ENFORCE=0` it never blocks at all.
 
 ## Opt out (SKIP)
 
@@ -42,6 +42,6 @@ Subagents auto-log too (the hook fires on `SubagentStop`) but are NEVER blocked.
 | `TIMELOG_SYNTHESIZE` | `1` | Set to `0` to log only agent-emitted markers (disable auto-synthesis). |
 | `TIMELOG_DEST` | `local` | Destination: `local` (per-workspace), `global` (one central file), or `both`. |
 | `TIMELOG_GLOBAL_PATH` | `~/.claude/.time-log.md` | Global file used when `TIMELOG_DEST` is `global` or `both`. |
-| `TIMELOG_ENFORCE` | `0` | `1` = require a real marker. On `Stop`, a working session with no quality marker is blocked **once** (you must emit a marker or `SKIP`); the retry falls through to synthesis. Lazy/synthesized-looking summaries are rejected as absent. Subagents and `PreCompact` are never blocked. |
+| `TIMELOG_ENFORCE` | `1` | Require a real marker (default on). On `Stop`, a working session with no quality marker is blocked **once** (you must emit a marker or `SKIP`); the retry falls through to synthesis. Lazy/synthesized-looking summaries are rejected as absent. Subagents and `PreCompact` are never blocked. Set `0` to disable. |
 
 Hook: `$HOME/.claude/hooks/timelog/claude_hook.py`. Data file: `<workspace>/.time-log.md` (local), and/or the global file above per `TIMELOG_DEST` (gitignored by this tool; never committed automatically).
