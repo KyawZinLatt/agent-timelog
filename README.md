@@ -2,8 +2,10 @@
 
 Automatic per-session time tracking for AI coding agents. Every session is logged to
 `<workspace>/.time-log.md` — either from a `<time-log>` marker the agent emits, or from
-a synthesized fallback entry derived from transcript metadata. The hook never blocks the
-agent; it always exits 0.
+a synthesized fallback entry derived from transcript metadata. By default the hook
+requires a real marker: on session end it blocks **once** to ask for one, then never
+again (see [Enforce mode](#enforce-mode)). Set `TIMELOG_ENFORCE=0` for the legacy
+never-block behavior. Either way the hook always exits 0.
 
 ---
 
@@ -15,7 +17,8 @@ agent; it always exits 0.
    the hook synthesizes an entry from transcript metadata. The category and summary are
    activity-aware — derived from the session's tool use (files edited → `feature`,
    commands run → `ops`, files read → `research`); a session with no recognizable tool
-   activity falls back to a generic `auto`-category line. The agent is never blocked.
+   activity falls back to a generic `auto`-category line. Under the default enforce mode
+   this fallback is what gets written on the retry after a single block (see below).
 3. **SKIP path:** The agent emits `<time-log>SKIP: reason</time-log>` to suppress
    synthesis for a session with genuinely nothing to record (e.g. a monitoring tick
    or accidental start). Q&A and discussion DO count — log those with a real marker.
@@ -128,7 +131,7 @@ This suppresses auto-synthesis. The session is not logged.
 | `TIMELOG_SYNTHESIZE` | `1` | Set to `0` to disable auto-synthesis (only agent-emitted markers are logged) |
 | `TIMELOG_DEST` | `local` | Where entries are written: `local` (per-workspace `.time-log.md`), `global` (one central file), or `both` |
 | `TIMELOG_GLOBAL_PATH` | `~/.claude/.time-log.md` | Path of the global file used by `TIMELOG_DEST=global\|both` |
-| `TIMELOG_ENFORCE` | `0` | Set to `1` to require a real agent marker (see [Enforce mode](#enforce-mode)) |
+| `TIMELOG_ENFORCE` | `1` | Require a real agent marker (see [Enforce mode](#enforce-mode)). Set to `0` for the legacy never-block behavior |
 
 Set these in the shell profile that launches Claude Code (e.g. `~/.zshrc`).
 
@@ -141,24 +144,28 @@ both places.
 
 ### Enforce mode
 
-By default the hook **never blocks** — if the agent emits no marker it synthesizes a generic
-line (e.g. `ops · workspace | ran 3 commands (3 tool calls) | 1m`). That fallback keeps every
-session recorded, but its summaries are mechanical.
+**On by default.** Synthesized fallback lines (e.g. `ops · workspace | ran 3 commands
+(3 tool calls) | 1m`) keep every session recorded, but their summaries are mechanical.
+Enforce mode demands a *real* marker instead.
 
-Set `TIMELOG_ENFORCE=1` to demand a *real* marker instead. On the main `Stop` event, if the
-session did work (≥ `TIMELOG_MIN_TOOLS`) but produced no quality marker, the hook blocks **once**
-and asks the agent to emit a canonical `<time-log>` line describing the work (or a
-`<time-log>SKIP: reason</time-log>` opt-out). The retry is never blocked again — if the marker
-is still missing it falls through to the normal synthesized fallback. So enforcement costs at
-most one extra turn and the hook is never *permanently* blocking.
+On the main `Stop` event, if the session did work (≥ `TIMELOG_MIN_TOOLS`) but produced no
+quality marker, the hook blocks **once** and asks the agent to emit a canonical `<time-log>`
+line describing the work (or a `<time-log>SKIP: reason</time-log>` opt-out). The retry is
+never blocked again — if the marker is still missing it falls through to the synthesized
+fallback. So enforcement costs at most one extra turn and the hook is never *permanently*
+blocking (and always exits 0; the block is signalled via a `decision` field, not a non-zero
+exit).
 
-Enforcement also filters out **lazy** markers: a summary that merely copies the synthesis shape
+It also filters out **lazy** markers: a summary that merely copies the synthesis shape
 (`ran N commands`, `read/searched N files`, anything ending in `(N tool calls)`,
 `auto-logged …`), is a generic single word (`auto`, `work`, `done`, …), or is too short is
 treated as absent — so the agent can't satisfy the gate with junk.
 
 Only `Stop` is enforced. `SubagentStop` and `PreCompact` are never blocked, preserving the
 never-block contract for subagents and `/compact`.
+
+**Set `TIMELOG_ENFORCE=0`** to disable enforcement entirely and restore the legacy
+never-block behavior (synthesis only, no marker ever required).
 
 ---
 

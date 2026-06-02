@@ -30,7 +30,7 @@ Validates strict canonical format; prose containing the tag pair is silently dro
 
 MIN_WORK_THRESHOLD = int(os.environ.get("TIMELOG_MIN_TOOLS", "1"))
 SYNTHESIZE = os.environ.get("TIMELOG_SYNTHESIZE", "1") != "0"
-ENFORCE = os.environ.get("TIMELOG_ENFORCE", "0") == "1"
+ENFORCE = os.environ.get("TIMELOG_ENFORCE", "1") != "0"
 
 ENFORCE_REASON = (
     "agent-timelog: no <time-log> marker describing this session's work was found. "
@@ -330,13 +330,13 @@ def main():
     text, tool_count, first_ts, last_ts = scan_transcript(transcript_path)
     candidates = core.extract_markers(text)
 
-    # Enforce mode (opt-in via TIMELOG_ENFORCE): on the main Stop event, if the
-    # session did real work but produced no QUALITY marker, block ONCE so the agent
-    # must describe its work. Lazy/synthesized-looking markers are filtered out and
-    # treated as absent — both for this decision and for what gets logged. The retry
-    # carries stop_hook_active=True; we then fall through to the normal synthesize
-    # path, so the hook is never permanently blocking. Subagents and PreCompact are
-    # never blocked (preserves the never-block contract for those events).
+    # Enforce mode (default on; set TIMELOG_ENFORCE=0 to disable): on the main Stop
+    # event, if the session did real work but produced no QUALITY marker, block ONCE
+    # so the agent must describe its work. Lazy/synthesized-looking markers are
+    # filtered out and treated as absent — both for this decision and for what gets
+    # logged. The retry carries stop_hook_active=True; we then fall through to the
+    # normal synthesize path, so the hook is never PERMANENTLY blocking. Subagents
+    # and PreCompact are never blocked.
     if ENFORCE:
         candidates = core.filter_quality(candidates)
         if (
