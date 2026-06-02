@@ -35,7 +35,7 @@ Whenever it writes one or more entries, it echoes them back to you via a one-lin
 Subagents (dispatched via `SubagentStop`) are logged the same way as the main agent.
 A marker in the subagent's own response text is captured directly. A subagent that does
 work without emitting a marker gets a synthesized entry derived from its **own**
-transcript — `scope = subagent`, a category inferred from its tool use, and a summary
+transcript — `scope = <workspace>-subagent`, a category inferred from its tool use, and a summary
 built from its agent type and dispatch prompt (e.g.
 `claude-code-guide: researched the hook schema (7 tool calls)`). This works for any
 subagent, including third-party ones, because the logic lives in this hook rather than
@@ -101,6 +101,23 @@ Format: `YYYY-MM-DD HH:MMZ–HH:MMZ | category · scope | summary | duration`
 - **summary:** any text — MUST NOT contain ` | ` (space-pipe-space)
 
 Multiple markers per session are allowed.
+
+### Automatic correctness
+
+You don't have to get the date or scope exactly right — the hook does not trust either
+string and rewrites them deterministically before logging:
+
+- **Date.** A marker dated today or yesterday (UTC) is kept as-is (so a session that
+  crosses midnight is fine). Any other date — a stale year, a future date, or an
+  impossible one — is rewritten to today's UTC date, preserving the times and duration,
+  with a one-line `[timelog] corrected date … -> …` note on stderr. A future- or
+  >1-day-stale line never lands.
+- **Scope.** The workspace slug is prepended unless your scope already names it:
+  `backend` → `dev-server-setup-backend`, while `dev-server-setup-backend` passes through
+  verbatim. The same normalization is applied to synthesized and subagent lines (a
+  subagent logs `<slug>-subagent`), so a shared global log stays attributable to its
+  project. When a session's writes all land under one subdirectory and you gave no repo
+  suffix, that subdirectory is appended as a best-effort hint.
 
 ### The `/log` command
 

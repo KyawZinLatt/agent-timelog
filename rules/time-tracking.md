@@ -14,6 +14,8 @@ Emit one `<time-log>` block per distinct task in your FINAL response, using the 
 - **Duration:** `Nm` · `Nh` · `Nh Nm` (e.g. `54m`, `2h`, `2h 10m`).
 - **Summary:** anything EXCEPT ` | ` (space-pipe-space) — use commas or em-dashes inside.
 
+**The date and scope are corrected for you.** Write the current UTC date and a bare scope (e.g. `backend`) — the hook rewrites a wrong/stale/future date to today (UTC) and prepends the workspace slug to the scope (`backend` → `<workspace>-backend`) so a shared global log stays attributable. Get the times, category, summary, and duration right; don't stress the exact date or whether the scope names the workspace.
+
 Agent-authored markers are preferred because their summaries are meaningful. If you omit them, the hook still logs an entry synthesized from session metadata — category and summary inferred from your tool use (see below); it only falls back to a generic `auto` line when no recognizable tool activity is present.
 
 **Log Q&A too.** A session that only answered questions or discussed a design still spent your time — emit a real marker for it (use a fitting category such as `qa`). Don't SKIP it. SKIP is only for sessions with genuinely nothing to record.
@@ -34,7 +36,7 @@ Reserve SKIP for sessions with genuinely nothing to record — a monitoring tick
 
 ## Subagents
 
-Subagents auto-log too (the hook fires on `SubagentStop`) but are NEVER blocked. A subagent's marker must live in that subagent's own final text to be captured. If a subagent emits no marker, the hook synthesizes a meaningful entry from the subagent's own transcript (`scope = subagent`, category inferred from its tool use, summary from its agent type and dispatch prompt) — so its work is recorded distinctly, not rolled up into the parent.
+Subagents auto-log too (the hook fires on `SubagentStop`) but are NEVER blocked. A subagent's marker must live in that subagent's own final text to be captured. If a subagent emits no marker, the hook synthesizes a meaningful entry from the subagent's own transcript (`scope = <workspace>-subagent`, category inferred from its tool use, summary from its agent type and dispatch prompt) — so its work is recorded distinctly, not rolled up into the parent.
 
 ## Knobs (environment variables)
 
