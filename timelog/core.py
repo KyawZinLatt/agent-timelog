@@ -115,6 +115,17 @@ def filter_quality(candidates):
     return out
 
 
+def skip_exempts_block(tool_count, max_tools):
+    """True if a SKIP marker should exempt this session from the enforce block.
+
+    A SKIP is honored silently for low-activity sessions (a monitoring tick, an
+    accidental start). Above `max_tools` the session likely did real work that a
+    SKIP would wrongly discard — so it is NOT exempt and the caller challenges it.
+    Count-based heuristic only; the boundary value is inclusive (still exempt).
+    """
+    return tool_count <= max_tools
+
+
 def sanitize_token(value, fallback):
     """Coerce a string to a valid category/scope token: lowercase letters + hyphens."""
     lowered = "".join(

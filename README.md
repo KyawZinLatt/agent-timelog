@@ -132,6 +132,7 @@ This suppresses auto-synthesis. The session is not logged.
 | `TIMELOG_DEST` | `local` | Where entries are written: `local` (per-workspace `.time-log.md`), `global` (one central file), or `both` |
 | `TIMELOG_GLOBAL_PATH` | `~/.claude/.time-log.md` | Path of the global file used by `TIMELOG_DEST=global\|both` |
 | `TIMELOG_ENFORCE` | `1` | Require a real agent marker (see [Enforce mode](#enforce-mode)). Set to `0` for the legacy never-block behavior |
+| `TIMELOG_SKIP_MAX_TOOLS` | `5` | Tool-call ceiling under which a `SKIP` is honored silently. Above it the `SKIP` is challenged once — the session likely did real work. Only applies when enforce is on |
 
 Set these in the shell profile that launches Claude Code (e.g. `~/.zshrc`).
 
@@ -160,6 +161,12 @@ It also filters out **lazy** markers: a summary that merely copies the synthesis
 (`ran N commands`, `read/searched N files`, anything ending in `(N tool calls)`,
 `auto-logged …`), is a generic single word (`auto`, `work`, `done`, …), or is too short is
 treated as absent — so the agent can't satisfy the gate with junk.
+
+It also guards `SKIP` against misuse. A `SKIP` is honored silently only for quiet sessions
+(a monitoring tick, an accidental start). If the session made more than `TIMELOG_SKIP_MAX_TOOLS`
+tool calls (default `5`), the `SKIP` is **challenged once** — the agent is asked to replace it
+with a real marker or re-emit the `SKIP` to confirm. Like the missing-marker block this is
+bounded: the retry honors the `SKIP`, so a genuine no-op still costs at most one extra turn.
 
 Only `Stop` is enforced. `SubagentStop` and `PreCompact` are never blocked, preserving the
 never-block contract for subagents and `/compact`.

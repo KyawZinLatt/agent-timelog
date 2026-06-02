@@ -30,6 +30,8 @@ Reserve SKIP for sessions with genuinely nothing to record — a monitoring tick
 
 `<time-log>SKIP: <one-line reason></time-log>`
 
+**SKIP on a busy session is challenged.** With enforcement on, a SKIP is honored silently only for quiet sessions. If the session made more than `TIMELOG_SKIP_MAX_TOOLS` tool calls (default 5), the SKIP is blocked **once** and you are asked to replace it with a real marker or re-emit the SKIP to confirm. Like the missing-marker block this is bounded — the retry honors the SKIP — so a genuine no-op costs at most one extra turn.
+
 ## Subagents
 
 Subagents auto-log too (the hook fires on `SubagentStop`) but are NEVER blocked. A subagent's marker must live in that subagent's own final text to be captured. If a subagent emits no marker, the hook synthesizes a meaningful entry from the subagent's own transcript (`scope = subagent`, category inferred from its tool use, summary from its agent type and dispatch prompt) — so its work is recorded distinctly, not rolled up into the parent.
@@ -43,5 +45,6 @@ Subagents auto-log too (the hook fires on `SubagentStop`) but are NEVER blocked.
 | `TIMELOG_DEST` | `local` | Destination: `local` (per-workspace), `global` (one central file), or `both`. |
 | `TIMELOG_GLOBAL_PATH` | `~/.claude/.time-log.md` | Global file used when `TIMELOG_DEST` is `global` or `both`. |
 | `TIMELOG_ENFORCE` | `1` | Require a real marker (default on). On `Stop`, a working session with no quality marker is blocked **once** (you must emit a marker or `SKIP`); the retry falls through to synthesis. Lazy/synthesized-looking summaries are rejected as absent. Subagents and `PreCompact` are never blocked. Set `0` to disable. |
+| `TIMELOG_SKIP_MAX_TOOLS` | `5` | Tool-call ceiling under which a `SKIP` is honored silently. Above it the `SKIP` is challenged **once** (the session likely did real work). Only applies when enforcement is on. |
 
 Hook: `$HOME/.claude/hooks/timelog/claude_hook.py`. Data file: `<workspace>/.time-log.md` (local), and/or the global file above per `TIMELOG_DEST` (gitignored by this tool; never committed automatically).
