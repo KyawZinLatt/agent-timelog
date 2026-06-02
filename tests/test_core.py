@@ -227,8 +227,15 @@ def test_is_lazy_summary_flags_tool_call_suffix():
 
 def test_is_lazy_summary_flags_synthesis_bodies():
     assert is_lazy_summary("auto-logged Stop, 5 tool calls")
+    assert is_lazy_summary("auto-logged SubagentStop, 9 tool calls")
     assert is_lazy_summary("ran 3 commands")
     assert is_lazy_summary("read/searched 4 files")
+
+
+def test_is_lazy_summary_flags_empty_and_whitespace():
+    assert is_lazy_summary("")
+    assert is_lazy_summary("   ")
+    assert is_lazy_summary("\t\n")
 
 
 def test_is_lazy_summary_flags_generic_and_short():
