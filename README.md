@@ -126,8 +126,17 @@ This suppresses auto-synthesis. The session is not logged.
 |---|---|---|
 | `TIMELOG_MIN_TOOLS` | `1` | Sessions with fewer tool calls than this threshold log nothing |
 | `TIMELOG_SYNTHESIZE` | `1` | Set to `0` to disable auto-synthesis (only agent-emitted markers are logged) |
+| `TIMELOG_DEST` | `local` | Where entries are written: `local` (per-workspace `.time-log.md`), `global` (one central file), or `both` |
+| `TIMELOG_GLOBAL_PATH` | `~/.claude/.time-log.md` | Path of the global file used by `TIMELOG_DEST=global\|both` |
 
 Set these in the shell profile that launches Claude Code (e.g. `~/.zshrc`).
+
+**Destinations.** By default each workspace keeps its own `.time-log.md` (`local`). Set
+`TIMELOG_DEST=global` to funnel every session into one central file instead, or
+`TIMELOG_DEST=both` to keep a per-workspace copy *and* a central roll-up. In `global`/`both`
+the `scope` token on each line still names the originating workspace, so a shared file stays
+readable. Each file dedups independently; in `both` the same entry intentionally appears in
+both places.
 
 ---
 

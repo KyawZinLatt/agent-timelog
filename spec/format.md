@@ -9,7 +9,10 @@ to a `.time-log.md` file MUST produce lines conforming to this spec.
 
 ## 1. Log-file shape
 
-Each workspace produces one file: `<workspace-root>/.time-log.md`.  
+The default destination is one file per workspace: `<workspace-root>/.time-log.md`.  
+An adapter MAY also offer a global destination (a single central file) or write to both
+the per-workspace file and the global file; the line format below is identical regardless
+of destination, and each file dedups independently.  
 The file is append-only. Each entry occupies exactly one line.  
 The file is gitignored by default; adapters MUST NOT commit it.
 
