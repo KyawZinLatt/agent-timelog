@@ -30,6 +30,10 @@ Validates strict canonical format; prose containing the tag pair is silently dro
 MIN_WORK_THRESHOLD = int(os.environ.get("TIMELOG_MIN_TOOLS", "1"))
 SYNTHESIZE = os.environ.get("TIMELOG_SYNTHESIZE", "1") != "0"
 ENFORCE = os.environ.get("TIMELOG_ENFORCE", "1") != "0"
+# Above this many tool calls, a SKIP is treated as suspect rather than honored
+# silently — the session likely did real work a SKIP would discard. Block once
+# to challenge it (the retry honors the SKIP, so it stays bounded).
+SKIP_MAX_TOOLS = int(os.environ.get("TIMELOG_SKIP_MAX_TOOLS", "5"))
 
 ENFORCE_REASON = (
     "agent-timelog: no <time-log> marker describing this session's work was found. "
@@ -38,6 +42,15 @@ ENFORCE_REASON = (
     "Use UTC times with an en-dash – between them, a middle-dot · between category and "
     "scope, and a summary that must not contain ' | '. If there is genuinely nothing to "
     "record, emit <time-log>SKIP: reason</time-log> instead."
+)
+
+SKIP_CHALLENGE_REASON = (
+    "agent-timelog: you emitted <time-log>SKIP</time-log>, but this session made "
+    "{n} tool calls. SKIP is only for sessions with nothing to record (a monitoring "
+    "tick, an accidental start). If you did real work — including answering questions "
+    "or discussing design — replace SKIP with a real canonical marker:\n"
+    "<time-log>YYYY-MM-DD HH:MMZ–HH:MMZ | category · scope | summary | duration</time-log>\n"
+    "To confirm there is genuinely nothing to record, emit the SKIP again."
 )
 
 GLOBAL_LOG_DEFAULT = os.path.join("~", ".claude", LOG_FILENAME)
@@ -342,11 +355,17 @@ def main():
             event == "Stop"
             and not data.get("stop_hook_active")
             and tool_count >= MIN_WORK_THRESHOLD
-            and not core.has_skip(text)
             and not candidates
         ):
-            emit_block(ENFORCE_REASON)
-            sys.exit(0)
+            if core.has_skip(text):
+                # A SKIP exempts quiet sessions silently, but a SKIP on a busy
+                # session likely discards real work — challenge it once.
+                if not core.skip_exempts_block(tool_count, SKIP_MAX_TOOLS):
+                    emit_block(SKIP_CHALLENGE_REASON.format(n=tool_count))
+                    sys.exit(0)
+            else:
+                emit_block(ENFORCE_REASON)
+                sys.exit(0)
 
     # Markers and the synthesized entry are transcript-derived, so compute them
     # once. Only per-file dedup differs across destinations.

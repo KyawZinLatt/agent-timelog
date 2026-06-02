@@ -196,10 +196,13 @@ def test_work_without_marker_synthesizes(tmp_path):
 
 
 def test_skip_marker_suppresses_synthesis(tmp_path):
+    # Isolate the synthesis path: with enforce on, a 6-tool SKIP would now be
+    # *challenged* (see test_enforce_challenges_skip_on_high_activity). Here we
+    # assert only that a SKIP suppresses synthesis, so disable enforce.
     ws = tmp_path / "ws"; ws.mkdir()
     tpath = _transcript(tmp_path, "<time-log>SKIP: only Q&A</time-log>", tool_uses=6)
     r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
-                  {"CLAUDE_PROJECT_DIR": str(ws)})
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_ENFORCE": "0"})
     assert r.returncode == 0, r.stderr
     assert "auto ·" not in (ws / ".time-log.md").read_text(encoding="utf-8")
 
@@ -522,12 +525,53 @@ def test_enforce_retry_synthesizes_when_still_missing(tmp_path):
 
 
 def test_enforce_does_not_block_skip(tmp_path):
+    # Low-activity SKIP (4 tools ≤ default ceiling 5) is honored silently.
     ws = tmp_path / "ws"; ws.mkdir()
     tpath = _transcript(tmp_path, "<time-log>SKIP: nothing to record</time-log>", tool_uses=4)
     r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
                   {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_ENFORCE": "1"})
     assert r.returncode == 0, r.stderr
     assert not _is_block(r.stdout)
+
+
+def test_enforce_challenges_skip_on_high_activity(tmp_path):
+    # SKIP above the default ceiling (8 > 5): the session did real work a SKIP
+    # would discard → block once and demand a real marker.
+    ws = tmp_path / "ws"; ws.mkdir()
+    tpath = _transcript(tmp_path, "<time-log>SKIP: nothing to record</time-log>", tool_uses=8)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_ENFORCE": "1"})
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout)
+    assert out["decision"] == "block"
+    assert "SKIP" in out["reason"]
+    # nothing logged — the agent must reconsider first
+    assert not (ws / ".time-log.md").exists()
+
+
+def test_enforce_skip_challenge_is_bounded(tmp_path):
+    # On the retry (stop_hook_active) the SKIP is honored: no block, nothing logged.
+    ws = tmp_path / "ws"; ws.mkdir()
+    tpath = _transcript(tmp_path, "<time-log>SKIP: nothing to record</time-log>", tool_uses=8)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop",
+                   "stop_hook_active": True},
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_ENFORCE": "1"})
+    assert r.returncode == 0, r.stderr
+    assert not _is_block(r.stdout)
+    # SKIP honored on retry → synthesis suppressed, no entry line appended
+    content = (ws / ".time-log.md").read_text(encoding="utf-8")
+    assert not any(ln.startswith("2026-") for ln in content.splitlines())
+
+
+def test_enforce_skip_ceiling_is_configurable(tmp_path):
+    # Lowering the ceiling to 2 makes a 4-tool SKIP a challenge.
+    ws = tmp_path / "ws"; ws.mkdir()
+    tpath = _transcript(tmp_path, "<time-log>SKIP: nothing to record</time-log>", tool_uses=4)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_ENFORCE": "1",
+                   "TIMELOG_SKIP_MAX_TOOLS": "2"})
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout)["decision"] == "block"
 
 
 def test_enforce_never_blocks_subagent(tmp_path):

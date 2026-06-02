@@ -164,6 +164,12 @@ any summary containing `(<N> tool calls)`, or `auto-logged …`), is a generic s
 (`auto`, `work`, `done`, …), or is shorter than a small minimum. Lazy markers are treated as
 absent for both the block decision and for logging.
 
+An enforcing adapter SHOULD also guard SKIP against misuse: a SKIP is honored silently only
+for low-activity sessions. When the session's tool-call count exceeds an adapter-defined
+ceiling (the reference adapter: `TIMELOG_SKIP_MAX_TOOLS`, default 5) the SKIP SHOULD be
+blocked **once** — asking the agent to replace it with a real marker or re-emit the SKIP to
+confirm — and MUST NOT block the retry, so a genuine no-op costs at most one extra turn.
+
 ---
 
 ## 6. Deduplication

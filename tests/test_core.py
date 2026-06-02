@@ -1,6 +1,6 @@
 from timelog.core import extract_markers, is_valid_entry, has_skip, select_new_entries, sanitize_token, format_duration, build_entry
 from timelog.core import infer_category, compose_subagent_summary, compose_session_summary
-from timelog.core import entry_summary, is_lazy_summary, filter_quality
+from timelog.core import entry_summary, is_lazy_summary, filter_quality, skip_exempts_block
 
 
 def test_extract_markers_returns_inner_text():
@@ -246,3 +246,21 @@ def test_filter_quality_keeps_only_valid_nonlazy_collapsed():
     out = filter_quality([VALID, lazy, "garbage", "  " + VALID + "  "])
     # VALID kept (collapsed, deduped not required here), lazy + garbage dropped
     assert out == [VALID, VALID]
+
+
+def test_skip_exempts_block_for_low_activity():
+    # A SKIP on a quiet session (tick / accidental start) is honored silently.
+    assert skip_exempts_block(0, 5) is True
+    assert skip_exempts_block(3, 5) is True
+    assert skip_exempts_block(5, 5) is True  # boundary is inclusive
+
+
+def test_skip_does_not_exempt_high_activity():
+    # A SKIP above the trust ceiling likely discards real work → not exempt.
+    assert skip_exempts_block(6, 5) is False
+    assert skip_exempts_block(40, 5) is False
+
+
+def test_skip_exempts_block_respects_custom_ceiling():
+    assert skip_exempts_block(4, 2) is False
+    assert skip_exempts_block(2, 2) is True
