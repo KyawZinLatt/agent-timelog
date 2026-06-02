@@ -97,6 +97,7 @@ OPS_TOOLS = frozenset({"Bash"})
 RESEARCH_TOOLS = frozenset({"Read", "Grep", "Glob", "LS", "WebFetch", "WebSearch"})
 
 SUBAGENT_SUMMARY_MAX = 100
+SESSION_SUMMARY_MAX = 100
 
 
 def infer_category(tool_counts):
@@ -146,3 +147,35 @@ def compose_subagent_summary(agent_type, dispatch_prompt, tool_total):
     if len(intent) > room:
         intent = intent[: room - 1].rstrip() + "…"
     return f"{prefix}{intent}{suffix}"
+
+
+def compose_session_summary(files, bash_count, research_count, tool_total):
+    """Build a meaningful main-session summary from tool activity.
+
+    Deterministic, no LLM. Describes the dominant activity — files edited
+    (mirrors infer_category's write-wins rule), else commands run, else files
+    read/searched — strips ' | ', and truncates to budget. Returns None when
+    activity is unrecognizable so the caller can fall back to the generic line.
+    """
+    calls = f"{tool_total} tool call" + ("" if tool_total == 1 else "s")
+    suffix = f" ({calls})"
+
+    if files:
+        clean = [" ".join(f.split()).replace("|", "/") for f in files if f and f.strip()]
+        body = "edited " + ", ".join(clean) if clean else ""
+    elif bash_count:
+        body = f"ran {bash_count} command" + ("" if bash_count == 1 else "s")
+    elif research_count:
+        body = f"read/searched {research_count} file" + ("" if research_count == 1 else "s")
+    else:
+        body = ""
+
+    if not body:
+        return None
+
+    room = SESSION_SUMMARY_MAX - len(suffix)
+    if room < 10:
+        room = 10
+    if len(body) > room:
+        body = body[: room - 1].rstrip() + "…"
+    return f"{body}{suffix}"

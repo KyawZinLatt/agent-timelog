@@ -102,6 +102,27 @@ def _transcript(tmp_path, assistant_text, tool_uses=0):
     return str(f)
 
 
+def _session_transcript(tmp_path, tools,
+                        ts=("2026-05-29T05:30:00.000Z", "2026-05-29T05:50:00.000Z")):
+    """Main-session transcript: assistant rows with named tool_use blocks.
+
+    `tools` is a list of (name, input_dict) so write tools can carry file_path.
+    """
+    content = [{"type": "text", "text": "did work, emitted no marker"}]
+    for name, inp in tools:
+        block = {"type": "tool_use", "name": name}
+        if inp:
+            block["input"] = inp
+        content.append(block)
+    rows = [
+        {"type": "assistant", "timestamp": ts[0], "message": {"content": content}},
+        {"type": "assistant", "timestamp": ts[1], "message": {"content": [{"type": "text", "text": "end"}]}},
+    ]
+    f = tmp_path / "sess.jsonl"
+    f.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
+    return str(f)
+
+
 def _subagent_transcript(tmp_path, dispatch, tools,
                          ts=("2026-05-29T05:30:00.000Z", "2026-05-29T05:50:00.000Z")):
     """Subagent transcript: leading user dispatch row + assistant row with named tools."""
@@ -160,13 +181,15 @@ def test_subagent_stop_logs_marker_without_enforcing(tmp_path):
 
 
 def test_work_without_marker_synthesizes(tmp_path):
+    # Bash-only session → ops category + meaningful "ran N commands" summary (A3)
     ws = tmp_path / "ws"; ws.mkdir()
     tpath = _transcript(tmp_path, "did work but emitted no marker", tool_uses=6)
     r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
                   {"CLAUDE_PROJECT_DIR": str(ws)})
     assert r.returncode == 0, r.stderr
     content = (ws / ".time-log.md").read_text(encoding="utf-8")
-    assert "| auto · ws |" in content
+    assert "| ops · ws |" in content
+    assert "ran 6 commands" in content
     assert "tool calls" in content
 
 
@@ -198,13 +221,13 @@ def test_synthesize_disabled_logs_nothing(tmp_path):
 
 
 def test_subagent_stop_synthesizes(tmp_path):
-    # SubagentStop without agent_type → generic auto fallback (legacy behavior)
+    # SubagentStop without agent_type → main synthesis path (now activity-aware): Bash → ops
     ws = tmp_path / "ws"; ws.mkdir()
     tpath = _transcript(tmp_path, "subagent work no marker", tool_uses=6)
     r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "SubagentStop"},
                   {"CLAUDE_PROJECT_DIR": str(ws)})
     assert r.returncode == 0, r.stderr
-    assert "auto · ws |" in (ws / ".time-log.md").read_text(encoding="utf-8")
+    assert "ops · ws |" in (ws / ".time-log.md").read_text(encoding="utf-8")
 
 
 def test_subagent_rich_summary_uses_dispatch_and_agent_type(tmp_path):
@@ -234,7 +257,8 @@ def test_subagent_category_feature_when_writes(tmp_path):
 
 
 def test_stop_event_ignores_subagent_path(tmp_path):
-    # agent_type on a Stop event must NOT trigger the subagent path
+    # agent_type on a Stop event must NOT trigger the subagent path; main path is
+    # activity-aware (WebFetch → research · ws), never the subagent scope.
     ws = tmp_path / "ws"; ws.mkdir()
     tpath = _subagent_transcript(tmp_path, "some dispatch", ["WebFetch"] * 3)
     r = _run_hook({"transcript_path": tpath, "cwd": str(ws),
@@ -242,8 +266,48 @@ def test_stop_event_ignores_subagent_path(tmp_path):
                   {"CLAUDE_PROJECT_DIR": str(ws)})
     assert r.returncode == 0, r.stderr
     content = (ws / ".time-log.md").read_text(encoding="utf-8")
-    assert "| auto · ws |" in content
+    assert "| research · ws |" in content
     assert "subagent" not in content
+
+
+def test_main_synth_feature_when_edits(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    tpath = _session_transcript(tmp_path, [
+        ("Edit", {"file_path": "/repo/core.py"}),
+        ("Edit", {"file_path": "/repo/hook.py"}),
+        ("Bash", {"command": "pytest"}),
+    ])
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws)})
+    assert r.returncode == 0, r.stderr
+    content = (ws / ".time-log.md").read_text(encoding="utf-8")
+    assert "| feature · ws |" in content
+    assert "edited core.py, hook.py" in content
+    assert "(3 tool calls)" in content
+
+
+def test_main_synth_research_when_reads(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    tpath = _session_transcript(tmp_path, [
+        ("Read", {"file_path": "/a"}), ("Grep", {}), ("Read", {"file_path": "/b"})])
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws)})
+    assert r.returncode == 0, r.stderr
+    content = (ws / ".time-log.md").read_text(encoding="utf-8")
+    assert "| research · ws |" in content
+    assert "read/searched 3 files" in content
+
+
+def test_main_synth_falls_back_to_auto_for_unknown_tools(tmp_path):
+    # No write/ops/research tools → generic auto line preserved
+    ws = tmp_path / "ws"; ws.mkdir()
+    tpath = _session_transcript(tmp_path, [("TodoWrite", {}), ("TodoWrite", {})])
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws)})
+    assert r.returncode == 0, r.stderr
+    content = (ws / ".time-log.md").read_text(encoding="utf-8")
+    assert "| auto · ws |" in content
+    assert "auto-logged Stop, 2 tool calls" in content
 
 
 def test_systemmessage_echoes_logged_marker(tmp_path):
@@ -264,7 +328,7 @@ def test_systemmessage_echoes_synthesized_entry(tmp_path):
                   {"CLAUDE_PROJECT_DIR": str(ws)})
     assert r.returncode == 0, r.stderr
     out = json.loads(r.stdout)
-    assert "auto · ws |" in out["systemMessage"]
+    assert "ops · ws |" in out["systemMessage"]
 
 
 def test_no_stdout_when_nothing_logged(tmp_path):
@@ -303,6 +367,6 @@ def test_synthesis_uses_transcript_timestamps_for_duration(tmp_path):
                   {"CLAUDE_PROJECT_DIR": str(ws)})
     assert r.returncode == 0, r.stderr
     content = (ws / ".time-log.md").read_text(encoding="utf-8")
-    assert "| auto · ws |" in content          # middle-dot scope
+    assert "| ops · ws |" in content            # Bash-only → ops; middle-dot scope
     assert "| 20m" in content                        # 05:30 -> 05:50 = 20 minutes
     assert "05:30Z–05:50Z" in content           # en-dash time range

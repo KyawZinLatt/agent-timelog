@@ -108,12 +108,25 @@ The reason MUST be non-empty (at least one non-whitespace character after the co
 When no valid marker is emitted and no SKIP is present, a conforming adapter MAY synthesize
 an entry automatically. Two variants are defined.
 
-### 5.1 Generic synthesis (default)
+### 5.1 Main-session synthesis (Stop / PreCompact)
+
+`scope` = sanitized workspace basename (fallback: `session`); `duration` derived from
+first–last transcript timestamps, minimum 1m. The `category`/`summary` are activity-aware:
+the adapter SHOULD derive them from the session's tool-use histogram instead of a generic
+line.
+
+- `category` = inferred from the tool-use histogram: any file-mutating tool → `feature`;
+  else Bash-dominant → `ops`; else read/search/web → `research`; else `auto`
+- `summary`, by dominant activity (` | `-stripped, truncated to budget):
+  - files written → `edited <basename>, <basename>, … (<N> tool calls)`
+  - else commands run → `ran <K> command(s) (<N> tool calls)`
+  - else files read/searched → `read/searched <K> file(s) (<N> tool calls)`
+
+If the activity is unrecognizable (no write/ops/research tools), the adapter MUST fall
+back to the generic form:
 
 - `category` = `auto`
-- `scope` = sanitized workspace basename (fallback: `session`)
 - `summary` = `auto-logged <event>, <N> tool calls`  (no ` | `)
-- `duration` derived from first–last transcript timestamps; minimum 1m
 
 ### 5.2 Subagent synthesis (SubagentStop)
 

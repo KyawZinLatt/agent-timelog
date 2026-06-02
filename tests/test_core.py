@@ -1,5 +1,5 @@
 from timelog.core import extract_markers, is_valid_entry, has_skip, select_new_entries, sanitize_token, format_duration, build_entry
-from timelog.core import infer_category, compose_subagent_summary
+from timelog.core import infer_category, compose_subagent_summary, compose_session_summary
 
 
 def test_extract_markers_returns_inner_text():
@@ -156,3 +156,47 @@ def test_compose_subagent_summary_empty_dispatch_uses_agent_only():
     s = compose_subagent_summary("worker", "", 4)
     assert "worker" in s and "4 tool calls" in s
     assert " | " not in s
+
+
+def test_compose_session_summary_files_edited():
+    s = compose_session_summary(["core.py", "claude_hook.py"], 0, 0, 8)
+    assert s == "edited core.py, claude_hook.py (8 tool calls)"
+    assert " | " not in s
+
+
+def test_compose_session_summary_commands_when_bash():
+    s = compose_session_summary([], 6, 0, 6)
+    assert s == "ran 6 commands (6 tool calls)"
+
+
+def test_compose_session_summary_single_command_is_singular():
+    s = compose_session_summary([], 1, 0, 1)
+    assert s == "ran 1 command (1 tool call)"
+
+
+def test_compose_session_summary_research_when_reads():
+    s = compose_session_summary([], 0, 3, 3)
+    assert s == "read/searched 3 files (3 tool calls)"
+
+
+def test_compose_session_summary_files_win_over_bash():
+    # writes dominate the summary just as they dominate infer_category
+    s = compose_session_summary(["a.py"], 4, 2, 7)
+    assert s.startswith("edited a.py")
+    assert s.endswith("(7 tool calls)")
+
+
+def test_compose_session_summary_none_when_unrecognized():
+    # no files, no bash, no research → caller falls back to generic auto line
+    assert compose_session_summary([], 0, 0, 5) is None
+
+
+def test_compose_session_summary_strips_pipe_in_filename():
+    s = compose_session_summary(["we|rd.py"], 0, 0, 1)
+    assert " | " not in s and "we/rd.py" in s
+
+
+def test_compose_session_summary_truncates_to_budget():
+    s = compose_session_summary(["x" * 200 + ".py"], 0, 0, 3)
+    assert len(s) <= 100
+    assert s.endswith("(3 tool calls)")
