@@ -185,6 +185,63 @@ def correct_entry_date(entry, today):
     return today.isoformat() + collapsed[10:], date_str
 
 
+def normalize_scope_token(scope, workspace_slug, repo_suffix=None):
+    """Force a scope token to identify its workspace, so a shared GLOBAL log can
+    tell which project an entry belongs to.
+
+    A scope that already names the workspace — equal to the slug, or beginning
+    with `<slug>-` — passes through verbatim (so an agent-supplied
+    "dev-server-setup-backend" is untouched). Otherwise the slug is prepended:
+    "backend" -> "dev-server-setup-backend", "workspace" -> "dev-server-setup-workspace".
+    The boundary check ("<slug>-", not bare startswith) keeps slug "dev" from
+    swallowing an unrelated scope "developer".
+
+    repo_suffix is the conservative best-effort repo hint. It is appended only
+    when the agent supplied no suffix of its own — i.e. the scope collapsed to
+    exactly the bare slug — so synthesized/bare scopes gain "-<subdir>" while an
+    explicit "...-backend" is left alone.
+    """
+    if scope == workspace_slug or scope.startswith(workspace_slug + "-"):
+        out = scope
+    else:
+        out = f"{workspace_slug}-{scope}"
+    if repo_suffix and out == workspace_slug and repo_suffix != workspace_slug:
+        out = f"{workspace_slug}-{repo_suffix}"
+    return out
+
+
+def normalize_scope(entry, workspace_slug, repo_suffix=None):
+    """Apply normalize_scope_token to the scope field of a canonical entry.
+
+    The scope is the token after ' · ' inside the second ' | '-delimited field.
+    Non-canonical input is returned collapsed and unchanged.
+    """
+    collapsed = " ".join(entry.split())
+    if not is_valid_entry(collapsed):
+        return collapsed
+    parts = collapsed.split(" | ")
+    cat_scope = parts[1].split(" · ")
+    cat_scope[1] = normalize_scope_token(cat_scope[1], workspace_slug, repo_suffix)
+    parts[1] = " · ".join(cat_scope)
+    return " | ".join(parts)
+
+
+def dominant_subdir(subdirs):
+    """Single shared immediate subdir slug across touched files, or None.
+
+    `subdirs` is the immediate-subdir name of each write under the workspace
+    ('' for a workspace-root file). Conservative: a slug is returned only when
+    every touched file shares ONE non-empty subdir; mixed dirs, a root-level
+    file, or no under-workspace files at all -> None (ambiguous, skip).
+    """
+    uniq = set(subdirs)
+    if len(uniq) == 1:
+        only = next(iter(uniq))
+        if only:
+            return sanitize_token(only, "") or None
+    return None
+
+
 WRITE_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
 OPS_TOOLS = frozenset({"Bash"})
 RESEARCH_TOOLS = frozenset({"Read", "Grep", "Glob", "LS", "WebFetch", "WebSearch"})
