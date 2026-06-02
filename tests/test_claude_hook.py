@@ -352,6 +352,87 @@ def test_no_stdout_when_marker_dedups(tmp_path):
     assert r.stdout.strip() == ""
 
 
+# --- Configurable log destination (TIMELOG_DEST: local | global | both) ---
+
+_MARKER = "<time-log>2026-05-26 09:00Z–09:20Z | refactor · workspace | dest thing | 20m</time-log>"
+_ENTRY = "2026-05-26 09:00Z–09:20Z | refactor · workspace | dest thing | 20m"
+
+
+def test_dest_default_is_local_only(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    gpath = tmp_path / "global" / ".time-log.md"; gpath.parent.mkdir()
+    tpath = _transcript(tmp_path, _MARKER, tool_uses=6)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_GLOBAL_PATH": str(gpath)})
+    assert r.returncode == 0, r.stderr
+    assert _ENTRY in (ws / ".time-log.md").read_text(encoding="utf-8")
+    assert not gpath.exists()
+
+
+def test_dest_global_only(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    gpath = tmp_path / "global" / ".time-log.md"; gpath.parent.mkdir()
+    tpath = _transcript(tmp_path, _MARKER, tool_uses=6)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_DEST": "global",
+                   "TIMELOG_GLOBAL_PATH": str(gpath)})
+    assert r.returncode == 0, r.stderr
+    assert _ENTRY in gpath.read_text(encoding="utf-8")
+    assert not (ws / ".time-log.md").exists()
+
+
+def test_dest_both_writes_each(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    gpath = tmp_path / "global" / ".time-log.md"; gpath.parent.mkdir()
+    tpath = _transcript(tmp_path, _MARKER, tool_uses=6)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_DEST": "both",
+                   "TIMELOG_GLOBAL_PATH": str(gpath)})
+    assert r.returncode == 0, r.stderr
+    assert _ENTRY in (ws / ".time-log.md").read_text(encoding="utf-8")
+    assert _ENTRY in gpath.read_text(encoding="utf-8")
+
+
+def test_dest_both_dedups_per_file_independently(tmp_path):
+    # local already has the entry; global is empty. both mode must leave local
+    # at count 1 and still write the entry to global.
+    ws = tmp_path / "ws"; ws.mkdir()
+    (ws / ".time-log.md").write_text("# Time log\n\n## Entries\n\n" + _ENTRY + "\n", encoding="utf-8")
+    gpath = tmp_path / "global" / ".time-log.md"; gpath.parent.mkdir()
+    tpath = _transcript(tmp_path, _MARKER, tool_uses=6)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_DEST": "both",
+                   "TIMELOG_GLOBAL_PATH": str(gpath)})
+    assert r.returncode == 0, r.stderr
+    assert (ws / ".time-log.md").read_text(encoding="utf-8").count(_ENTRY) == 1
+    assert gpath.read_text(encoding="utf-8").count(_ENTRY) == 1
+
+
+def test_dest_both_global_failure_does_not_block_local(tmp_path):
+    # global path's parent is a regular file -> makedirs/open fails -> tolerated.
+    ws = tmp_path / "ws"; ws.mkdir()
+    afile = tmp_path / "afile"; afile.write_text("x", encoding="utf-8")
+    gpath = afile / ".time-log.md"  # parent is a file, not a dir
+    tpath = _transcript(tmp_path, _MARKER, tool_uses=6)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_DEST": "both",
+                   "TIMELOG_GLOBAL_PATH": str(gpath)})
+    assert r.returncode == 0, r.stderr
+    assert _ENTRY in (ws / ".time-log.md").read_text(encoding="utf-8")
+
+
+def test_dest_global_creates_missing_parent_dir(tmp_path):
+    # ~/.claude analogue missing -> ensure_log_file makes parents.
+    ws = tmp_path / "ws"; ws.mkdir()
+    gpath = tmp_path / "nope" / "deep" / ".time-log.md"  # parent dirs do not exist
+    tpath = _transcript(tmp_path, _MARKER, tool_uses=6)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_DEST": "global",
+                   "TIMELOG_GLOBAL_PATH": str(gpath)})
+    assert r.returncode == 0, r.stderr
+    assert _ENTRY in gpath.read_text(encoding="utf-8")
+
+
 def test_synthesis_uses_transcript_timestamps_for_duration(tmp_path):
     ws = tmp_path / "ws"; ws.mkdir()
     rows = [

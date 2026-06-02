@@ -31,6 +31,8 @@ Validates strict canonical format; prose containing the tag pair is silently dro
 MIN_WORK_THRESHOLD = int(os.environ.get("TIMELOG_MIN_TOOLS", "1"))
 SYNTHESIZE = os.environ.get("TIMELOG_SYNTHESIZE", "1") != "0"
 
+GLOBAL_LOG_DEFAULT = os.path.join("~", ".claude", LOG_FILENAME)
+
 
 def resolve_workspace(cwd_from_input):
     candidate = os.environ.get("CLAUDE_PROJECT_DIR", "").strip()
@@ -39,6 +41,24 @@ def resolve_workspace(cwd_from_input):
     if cwd_from_input and os.path.isdir(cwd_from_input):
         return cwd_from_input
     return ""
+
+
+def resolve_global_path():
+    return os.path.expanduser(os.environ.get("TIMELOG_GLOBAL_PATH", GLOBAL_LOG_DEFAULT))
+
+
+def resolve_destinations(project_dir):
+    """Ordered list of log files to write, per TIMELOG_DEST (local|global|both).
+
+    Default and any unrecognized value -> local only, preserving prior behavior.
+    """
+    dest = os.environ.get("TIMELOG_DEST", "local").strip().lower()
+    local = os.path.join(project_dir, LOG_FILENAME)
+    if dest == "global":
+        return [resolve_global_path()]
+    if dest == "both":
+        return [local, resolve_global_path()]
+    return [local]
 
 
 def read_existing_entries(log_file):
@@ -66,6 +86,9 @@ def ensure_log_file(path):
     if os.path.exists(path):
         return True
     try:
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             f.write(LOG_HEADER)
         return True
@@ -246,12 +269,23 @@ def synthesize_subagent_entry(agent_type, dispatch, tool_counts, first_ts, last_
     )
 
 
-def emit_summary(written):
-    """Echo written entries back to the user via the Stop-hook systemMessage channel."""
-    n = len(written)
+def _display_path(path):
+    """Collapse the home prefix to ~ for a compact, unambiguous destination label."""
+    home = os.path.expanduser("~")
+    if path == home:
+        return "~"
+    if path.startswith(home + os.sep):
+        return "~" + path[len(home):]
+    return path
+
+
+def emit_summary(entries, files):
+    """Echo distinct written entries + destination files via the systemMessage channel."""
+    n = len(entries)
     label = "entry" if n == 1 else "entries"
-    body = "\n".join(written)
-    msg = f"⏱ logged {n} time-log {label} to {LOG_FILENAME}:\n{body}"
+    dest = ", ".join(_display_path(f) for f in files)
+    body = "\n".join(entries)
+    msg = f"⏱ logged {n} time-log {label} to {dest}:\n{body}"
     try:
         print(json.dumps({"suppressOutput": True, "systemMessage": msg}))
     except (OSError, ValueError):
@@ -273,30 +307,16 @@ def main():
     if not project_dir:
         sys.exit(0)
 
-    log_file = os.path.join(project_dir, LOG_FILENAME)
-    if not ensure_log_file(log_file):
-        sys.exit(0)
+    destinations = resolve_destinations(project_dir)
 
-    existing = read_existing_entries(log_file)
     text, tool_count, first_ts, last_ts = scan_transcript(transcript_path)
-
     candidates = core.extract_markers(text)
-    valid, new = core.select_new_entries(candidates, existing)
 
-    written = []
+    # Markers and the synthesized entry are transcript-derived, so compute them
+    # once. Only per-file dedup differs across destinations.
+    valid, _ = core.select_new_entries(candidates, set())
 
-    def _append(lines):
-        try:
-            with open(log_file, "a", encoding="utf-8") as f:
-                for ln in lines:
-                    f.write(ln + "\n")
-            written.extend(lines)
-        except OSError:
-            pass
-
-    if new:
-        _append(new)
-
+    synth = None
     if (
         not valid
         and not core.has_skip(text)
@@ -317,11 +337,35 @@ def main():
             entry = synthesize_entry(
                 event, tool_count, project_dir, first_ts, last_ts, tool_counts, files
             )
-        if core.is_valid_entry(entry) and entry not in existing:
-            _append([entry])
+        if core.is_valid_entry(entry):
+            synth = entry
 
-    if written:
-        emit_summary(written)
+    written_entries = []  # distinct entries written to at least one file
+    written_files = []    # files that received at least one append
+
+    for log_file in destinations:
+        if not ensure_log_file(log_file):
+            continue
+        existing = read_existing_entries(log_file)
+        _, new = core.select_new_entries(candidates, existing)
+        to_write = list(new)
+        if synth is not None and synth not in existing:
+            to_write.append(synth)
+        if not to_write:
+            continue
+        try:
+            with open(log_file, "a", encoding="utf-8") as f:
+                for ln in to_write:
+                    f.write(ln + "\n")
+        except OSError:
+            continue
+        written_files.append(log_file)
+        for ln in to_write:
+            if ln not in written_entries:
+                written_entries.append(ln)
+
+    if written_entries:
+        emit_summary(written_entries, written_files)
 
     sys.exit(0)
 

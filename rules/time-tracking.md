@@ -40,5 +40,7 @@ Subagents auto-log too (the hook fires on `SubagentStop`) but are NEVER blocked.
 |---|---|---|
 | `TIMELOG_MIN_TOOLS` | `1` | Minimum tool calls before anything is logged/synthesized. |
 | `TIMELOG_SYNTHESIZE` | `1` | Set to `0` to log only agent-emitted markers (disable auto-synthesis). |
+| `TIMELOG_DEST` | `local` | Destination: `local` (per-workspace), `global` (one central file), or `both`. |
+| `TIMELOG_GLOBAL_PATH` | `~/.claude/.time-log.md` | Global file used when `TIMELOG_DEST` is `global` or `both`. |
 
-Hook: `$HOME/.claude/hooks/timelog/claude_hook.py`. Data file: `<workspace>/.time-log.md` (gitignored by this tool; never committed automatically).
+Hook: `$HOME/.claude/hooks/timelog/claude_hook.py`. Data file: `<workspace>/.time-log.md` (local), and/or the global file above per `TIMELOG_DEST` (gitignored by this tool; never committed automatically).
