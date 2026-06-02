@@ -197,17 +197,39 @@ def synthesize_entry(event, tool_count, project_dir, first_ts, last_ts,
     )
 
 
-def scan_session_detail(transcript_path):
-    """Tool-name histogram + edited file basenames for the main Stop synthesis.
+def _immediate_subdir(path, project_dir):
+    """Immediate subdir of `path` under project_dir, '' for a root-level file,
+    or None when the path is not under the workspace at all.
+
+    Conservative input for core.dominant_subdir: only under-workspace writes
+    contribute a repo hint; out-of-workspace paths are ignored entirely.
+    """
+    if not path or not project_dir:
+        return None
+    try:
+        rel = os.path.relpath(os.path.abspath(path), os.path.abspath(project_dir))
+    except ValueError:
+        return None
+    if rel == os.pardir or rel.startswith(os.pardir + os.sep) or os.path.isabs(rel):
+        return None
+    head = rel.split(os.sep)
+    return head[0] if len(head) > 1 else ""
+
+
+def scan_session_detail(transcript_path, project_dir=None):
+    """Tool-name histogram, edited file basenames, and immediate subdirs.
 
     Reads only assistant tool_use blocks. File basenames come from the input
-    file_path of write tools, dedup-ordered by first appearance.
+    file_path of write tools, dedup-ordered by first appearance. `subdirs` lists
+    the immediate-subdir name of each under-workspace write ('' for a root file),
+    feeding core.dominant_subdir for the conservative repo suffix.
     """
     tool_counts = {}
     files = []
+    subdirs = []
     seen = set()
     if not transcript_path or not os.path.exists(transcript_path):
-        return tool_counts, files
+        return tool_counts, files, subdirs
     try:
         with open(transcript_path, encoding="utf-8") as f:
             for line in f:
@@ -232,9 +254,12 @@ def scan_session_detail(transcript_path):
                         if base and base not in seen:
                             seen.add(base)
                             files.append(base)
+                        sub = _immediate_subdir(path, project_dir)
+                        if sub is not None:
+                            subdirs.append(sub)
     except OSError:
-        return {}, []
-    return tool_counts, files
+        return {}, [], []
+    return tool_counts, files, subdirs
 
 
 def scan_subagent_detail(transcript_path):
@@ -341,7 +366,37 @@ def main():
     destinations = resolve_destinations(project_dir)
 
     text, tool_count, first_ts, last_ts = scan_transcript(transcript_path)
-    candidates = core.extract_markers(text)
+
+    # Workspace identity + UTC "today" drive the two correctness rewrites below.
+    today = datetime.datetime.now(datetime.timezone.utc).date()
+    workspace_slug = core.sanitize_token(
+        os.path.basename(project_dir.rstrip("/")), "workspace"
+    )
+
+    # Conservative repo hint from this session's writes (main path only; a subagent
+    # keeps the bare "<slug>-subagent" scope). Scanned once here and reused by the
+    # synthesis branch so the transcript is not re-read.
+    is_subagent = event == "SubagentStop" and bool(data.get("agent_type"))
+    main_tool_counts, main_files, repo_suffix = {}, [], None
+    if not is_subagent:
+        main_tool_counts, main_files, main_subdirs = scan_session_detail(
+            transcript_path, project_dir
+        )
+        repo_suffix = core.dominant_subdir(main_subdirs)
+
+    # Normalize every emitted marker before anything else looks at it: rewrite an
+    # untrustworthy date to today (UTC), then force the scope to identify its
+    # workspace. A date rewrite emits a one-line stderr note. Both rewrites leave
+    # non-canonical text untouched for select_new_entries to drop.
+    candidates = []
+    for raw in core.extract_markers(text):
+        corrected, old_date = core.correct_entry_date(raw, today)
+        if old_date:
+            print(
+                f"[timelog] corrected date {old_date} -> {today.isoformat()}",
+                file=sys.stderr,
+            )
+        candidates.append(core.normalize_scope(corrected, workspace_slug, repo_suffix))
 
     # Enforce mode (default on; set TIMELOG_ENFORCE=0 to disable): on the main Stop
     # event, if the session did real work but produced no QUALITY marker, block ONCE
@@ -389,12 +444,20 @@ def main():
             if not core.is_valid_entry(entry):
                 entry = None
         if entry is None:
-            tool_counts, files = scan_session_detail(transcript_path)
+            # Subagent fallback re-reads the transcript for main-style detail since
+            # the up-front scan was skipped on the subagent path.
+            if is_subagent:
+                main_tool_counts, main_files, _ = scan_session_detail(
+                    transcript_path, project_dir
+                )
             entry = synthesize_entry(
-                event, tool_count, project_dir, first_ts, last_ts, tool_counts, files
+                event, tool_count, project_dir, first_ts, last_ts,
+                main_tool_counts, main_files,
             )
         if core.is_valid_entry(entry):
-            synth = entry
+            # Same scope normalization the markers get, so synthesized and
+            # subagent lines also read "<slug>-…" instead of a bare scope.
+            synth = core.normalize_scope(entry, workspace_slug, repo_suffix)
 
     written_entries = []  # distinct entries written to at least one file
     written_files = []    # files that received at least one append
