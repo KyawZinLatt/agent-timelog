@@ -1,3 +1,4 @@
+import datetime
 import re
 
 MARKER_RE = re.compile(r"<time-log>(.+?)</time-log>", re.DOTALL)
@@ -155,6 +156,33 @@ def format_duration(total_minutes):
 def build_entry(date, start, end, category, scope, summary, duration):
     """Assemble a canonical time-log line. Caller ensures fields are clean."""
     return f"{date} {start}Z–{end}Z | {category} · {scope} | {summary} | {duration}"
+
+
+def correct_entry_date(entry, today):
+    """Trust the system clock, not the marker's date string.
+
+    `today` is a datetime.date supplied by the caller (kept pure — no now() here).
+    A valid entry whose date is `today` or yesterday (UTC) is accepted verbatim
+    (allows midnight-crossing sessions). Anything else — a stale date, a future
+    date, or a shape-valid-but-impossible date like 2026-13-40 — has its date
+    field rewritten to `today`, preserving times and duration.
+
+    Returns (entry, old_date). old_date is the replaced string only when a rewrite
+    happened, else None — the caller uses it to print a one-line stderr note.
+    Non-canonical input is returned collapsed and unchanged (old_date None).
+    """
+    collapsed = " ".join(entry.split())
+    if not is_valid_entry(collapsed):
+        return collapsed, None
+    date_str = collapsed[:10]
+    try:
+        marker_date = datetime.date.fromisoformat(date_str)
+    except ValueError:
+        return today.isoformat() + collapsed[10:], date_str
+    yesterday = today - datetime.timedelta(days=1)
+    if marker_date in (today, yesterday):
+        return collapsed, None
+    return today.isoformat() + collapsed[10:], date_str
 
 
 WRITE_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
