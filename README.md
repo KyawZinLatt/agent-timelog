@@ -12,8 +12,10 @@ agent; it always exits 0.
 1. **Marker path (preferred):** The agent emits a `<time-log>…</time-log>` tag in its
    final response. The hook extracts, validates, deduplicates, and appends the entry.
 2. **Synthesis path (fallback):** If no valid marker is emitted and no SKIP is present,
-   the hook synthesizes a generic `auto`-category entry from transcript metadata (first /
-   last message timestamps, tool-call count). The agent is never blocked.
+   the hook synthesizes an entry from transcript metadata. The category and summary are
+   activity-aware — derived from the session's tool use (files edited → `feature`,
+   commands run → `ops`, files read → `research`); a session with no recognizable tool
+   activity falls back to a generic `auto`-category line. The agent is never blocked.
 3. **SKIP path:** The agent emits `<time-log>SKIP: reason</time-log>` to suppress
    synthesis for a session with genuinely nothing to record (e.g. a monitoring tick
    or accidental start). Q&A and discussion DO count — log those with a real marker.
@@ -140,7 +142,7 @@ Example entries:
 ```
 2026-05-29 09:00Z–09:45Z | feature · backend | add user auth endpoint | 45m
 2026-05-29 10:00Z–10:20Z | docs · workspace | update README | 20m
-2026-05-29 11:00Z–11:15Z | auto · my-project | auto-logged Stop, 8 tool calls | 15m
+2026-05-29 11:00Z–11:15Z | feature · my-project | edited auth.py, routes.py (8 tool calls) | 15m
 ```
 
 ---

@@ -119,22 +119,76 @@ def scan_transcript(transcript_path):
     return "\n".join(parts), tool_count, first_ts, last_ts
 
 
-def synthesize_entry(event, tool_count, project_dir, first_ts, last_ts):
+def synthesize_entry(event, tool_count, project_dir, first_ts, last_ts,
+                     tool_counts=None, files=None):
     now = datetime.datetime.now(datetime.timezone.utc)
     start = first_ts or now
     end = last_ts or start
     minutes = int(round((end - start).total_seconds() / 60))
     scope = core.sanitize_token(os.path.basename(project_dir.rstrip("/")), "session")
+
+    # Activity-aware fallback: infer category + summary from tool use. When the
+    # session's tools aren't recognizable, fall back to the generic auto line.
+    category = "auto"
     summary = f"auto-logged {event}, {tool_count} tool calls"
+    if tool_counts:
+        bash_count = sum(n for t, n in tool_counts.items() if t in core.OPS_TOOLS)
+        research_count = sum(n for t, n in tool_counts.items() if t in core.RESEARCH_TOOLS)
+        total = sum(tool_counts.values())
+        composed = core.compose_session_summary(files or [], bash_count, research_count, total)
+        if composed is not None:
+            category = core.infer_category(tool_counts)
+            summary = composed
+
     return core.build_entry(
         start.strftime("%Y-%m-%d"),
         start.strftime("%H:%M"),
         end.strftime("%H:%M"),
-        "auto",
+        category,
         scope,
         summary,
         core.format_duration(minutes),
     )
+
+
+def scan_session_detail(transcript_path):
+    """Tool-name histogram + edited file basenames for the main Stop synthesis.
+
+    Reads only assistant tool_use blocks. File basenames come from the input
+    file_path of write tools, dedup-ordered by first appearance.
+    """
+    tool_counts = {}
+    files = []
+    seen = set()
+    if not transcript_path or not os.path.exists(transcript_path):
+        return tool_counts, files
+    try:
+        with open(transcript_path, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    msg = json.loads(line)
+                except ValueError:
+                    continue
+                if msg.get("type") != "assistant":
+                    continue
+                content = msg.get("message", {}).get("content")
+                if not isinstance(content, list):
+                    continue
+                for c in content:
+                    if not isinstance(c, dict) or c.get("type") != "tool_use":
+                        continue
+                    name = c.get("name", "")
+                    tool_counts[name] = tool_counts.get(name, 0) + 1
+                    if name in core.WRITE_TOOLS:
+                        inp = c.get("input") or {}
+                        path = inp.get("file_path") or inp.get("notebook_path") or ""
+                        base = os.path.basename(path) if path else ""
+                        if base and base not in seen:
+                            seen.add(base)
+                            files.append(base)
+    except OSError:
+        return {}, []
+    return tool_counts, files
 
 
 def scan_subagent_detail(transcript_path):
@@ -259,7 +313,10 @@ def main():
             if not core.is_valid_entry(entry):
                 entry = None
         if entry is None:
-            entry = synthesize_entry(event, tool_count, project_dir, first_ts, last_ts)
+            tool_counts, files = scan_session_detail(transcript_path)
+            entry = synthesize_entry(
+                event, tool_count, project_dir, first_ts, last_ts, tool_counts, files
+            )
         if core.is_valid_entry(entry) and entry not in existing:
             _append([entry])
 
