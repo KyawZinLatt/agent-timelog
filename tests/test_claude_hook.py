@@ -82,7 +82,9 @@ def test_scan_captures_first_and_last_timestamps(tmp_path):
 
 
 def _run_hook(stdin_obj, env_extra):
-    env = dict(os.environ)
+    # Drop any TIMELOG_* inherited from the dev shell so each test controls its
+    # own knobs; otherwise e.g. an exported TIMELOG_DEST=both breaks isolation.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("TIMELOG_")}
     env.update(env_extra)
     env["PYTHONPATH"] = REPO
     return subprocess.run(
@@ -451,3 +453,116 @@ def test_synthesis_uses_transcript_timestamps_for_duration(tmp_path):
     assert "| ops · ws |" in content            # Bash-only → ops; middle-dot scope
     assert "| 20m" in content                        # 05:30 -> 05:50 = 20 minutes
     assert "05:30Z–05:50Z" in content           # en-dash time range
+
+
+def _is_block(stdout):
+    """True if the hook emitted a Stop-block decision."""
+    stdout = stdout.strip()
+    if not stdout:
+        return False
+    try:
+        return json.loads(stdout).get("decision") == "block"
+    except ValueError:
+        return False
+
+
+# --- enforce mode: bounded block-then-synthesize (#2) + lazy gate (#3) ---
+
+_QUALITY = ("<time-log>2026-06-02 09:00Z–09:20Z | feature · ws | "
+            "implemented real feature work | 20m</time-log>")
+_LAZY = ("<time-log>2026-06-02 09:40Z–09:41Z | ops · dev-server | "
+         "ran 3 commands (3 tool calls) | 1m</time-log>")
+_ENTRY_LAZY = "2026-06-02 09:40Z–09:41Z | ops · dev-server | ran 3 commands (3 tool calls) | 1m"
+
+
+def test_enforce_blocks_when_no_marker(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    tpath = _transcript(tmp_path, "did work, emitted nothing", tool_uses=4)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_ENFORCE": "1"})
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout)
+    assert out["decision"] == "block"
+    assert "time-log" in out["reason"]
+    # nothing logged yet — agent must produce a marker first
+    assert not (ws / ".time-log.md").exists()
+
+
+def test_enforce_passes_quality_marker(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    tpath = _transcript(tmp_path, _QUALITY, tool_uses=4)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_ENFORCE": "1"})
+    assert r.returncode == 0, r.stderr
+    assert not _is_block(r.stdout)
+    assert "implemented real feature work | 20m" in (ws / ".time-log.md").read_text(encoding="utf-8")
+
+
+def test_enforce_blocks_lazy_marker_and_drops_it(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    tpath = _transcript(tmp_path, _LAZY, tool_uses=4)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_ENFORCE": "1"})
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout)["decision"] == "block"
+    # lazy marker treated as absent → not logged
+    assert not (ws / ".time-log.md").exists()
+
+
+def test_enforce_retry_synthesizes_when_still_missing(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    tpath = _session_transcript(tmp_path, [("Bash", None), ("Bash", None), ("Bash", None)])
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop",
+                   "stop_hook_active": True},
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_ENFORCE": "1"})
+    assert r.returncode == 0, r.stderr
+    assert not _is_block(r.stdout)
+    # bounded: on retry it falls through to synthesis
+    assert "ops · ws" in (ws / ".time-log.md").read_text(encoding="utf-8")
+
+
+def test_enforce_does_not_block_skip(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    tpath = _transcript(tmp_path, "<time-log>SKIP: nothing to record</time-log>", tool_uses=4)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_ENFORCE": "1"})
+    assert r.returncode == 0, r.stderr
+    assert not _is_block(r.stdout)
+
+
+def test_enforce_never_blocks_subagent(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    tpath = _subagent_transcript(tmp_path, "do a thing", ["Bash", "Bash"])
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "SubagentStop",
+                   "agent_type": "worker"},
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_ENFORCE": "1"})
+    assert r.returncode == 0, r.stderr
+    assert not _is_block(r.stdout)
+
+
+def test_enforce_never_blocks_precompact(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    tpath = _transcript(tmp_path, "did work, no marker", tool_uses=4)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "PreCompact"},
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_ENFORCE": "1"})
+    assert r.returncode == 0, r.stderr
+    assert not _is_block(r.stdout)
+
+
+def test_enforce_does_not_block_empty_session(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    tpath = _transcript(tmp_path, "no work", tool_uses=0)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_ENFORCE": "1"})
+    assert r.returncode == 0, r.stderr
+    assert not _is_block(r.stdout)
+
+
+def test_default_off_never_blocks_and_synthesizes(tmp_path):
+    ws = tmp_path / "ws"; ws.mkdir()
+    tpath = _transcript(tmp_path, "did work, no marker", tool_uses=4)
+    r = _run_hook({"transcript_path": tpath, "cwd": str(ws), "hook_event_name": "Stop"},
+                  {"CLAUDE_PROJECT_DIR": str(ws), "TIMELOG_ENFORCE": "0"})
+    assert r.returncode == 0, r.stderr
+    assert not _is_block(r.stdout)
+    assert (ws / ".time-log.md").exists()

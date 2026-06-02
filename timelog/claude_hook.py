@@ -29,6 +29,16 @@ Validates strict canonical format; prose containing the tag pair is silently dro
 
 MIN_WORK_THRESHOLD = int(os.environ.get("TIMELOG_MIN_TOOLS", "1"))
 SYNTHESIZE = os.environ.get("TIMELOG_SYNTHESIZE", "1") != "0"
+ENFORCE = os.environ.get("TIMELOG_ENFORCE", "0") == "1"
+
+ENFORCE_REASON = (
+    "agent-timelog: no <time-log> marker describing this session's work was found. "
+    "Before stopping, emit one canonical marker in your final message:\n"
+    "<time-log>YYYY-MM-DD HH:MMZ–HH:MMZ | category · scope | summary | duration</time-log>\n"
+    "Use UTC times with an en-dash – between them, a middle-dot · between category and "
+    "scope, and a summary that must not contain ' | '. If there is genuinely nothing to "
+    "record, emit <time-log>SKIP: reason</time-log> instead."
+)
 
 GLOBAL_LOG_DEFAULT = os.path.join("~", ".claude", LOG_FILENAME)
 
@@ -278,6 +288,14 @@ def _display_path(path):
     return path
 
 
+def emit_block(reason):
+    """Reject session end (Stop) so the agent emits a marker. Bounded to one retry."""
+    try:
+        print(json.dumps({"decision": "block", "reason": reason}))
+    except (OSError, ValueError):
+        pass
+
+
 def emit_summary(entries, files):
     """Echo distinct written entries + destination files via the systemMessage channel."""
     n = len(entries)
@@ -310,6 +328,25 @@ def main():
 
     text, tool_count, first_ts, last_ts = scan_transcript(transcript_path)
     candidates = core.extract_markers(text)
+
+    # Enforce mode (opt-in via TIMELOG_ENFORCE): on the main Stop event, if the
+    # session did real work but produced no QUALITY marker, block ONCE so the agent
+    # must describe its work. Lazy/synthesized-looking markers are filtered out and
+    # treated as absent — both for this decision and for what gets logged. The retry
+    # carries stop_hook_active=True; we then fall through to the normal synthesize
+    # path, so the hook is never permanently blocking. Subagents and PreCompact are
+    # never blocked (preserves the never-block contract for those events).
+    if ENFORCE:
+        candidates = core.filter_quality(candidates)
+        if (
+            event == "Stop"
+            and not data.get("stop_hook_active")
+            and tool_count >= MIN_WORK_THRESHOLD
+            and not core.has_skip(text)
+            and not candidates
+        ):
+            emit_block(ENFORCE_REASON)
+            sys.exit(0)
 
     # Markers and the synthesized entry are transcript-derived, so compute them
     # once. Only per-file dedup differs across destinations.
