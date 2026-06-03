@@ -234,3 +234,47 @@ def test_run_garbage_threshold_uses_default(tmp_path, monkeypatch):
     _write_transcript(t, 5)
     p = _payload(tmp_path, t)
     assert remind_hook.run(p, now=1.0) == ""    # default 10, count 1: silent
+
+
+# --- main() subprocess tests ---
+
+
+import subprocess
+import sys
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+HOOK = os.path.join(REPO, "timelog", "remind_hook.py")
+
+
+def _run_hook(stdin_text, env_extra=None):
+    env = dict(os.environ)
+    env.update(env_extra or {})
+    return subprocess.run(
+        [sys.executable, HOOK],
+        input=stdin_text,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=30,
+    )
+
+
+def test_main_no_stdin_exits_zero_silent():
+    r = _run_hook("")
+    assert r.returncode == 0
+    assert r.stdout == ""
+
+
+def test_main_bad_json_exits_zero_silent():
+    r = _run_hook("{not json")
+    assert r.returncode == 0
+    assert r.stdout == ""
+
+
+def test_main_minimal_payload_exits_zero(tmp_path):
+    payload = json.dumps({"session_id": "subproc-test-1",
+                          "transcript_path": str(tmp_path / "none.jsonl"),
+                          "cwd": str(tmp_path)})
+    r = _run_hook(payload, env_extra={"TIMELOG_REMIND_AFTER": "999"})
+    assert r.returncode == 0
+    assert r.stdout == ""

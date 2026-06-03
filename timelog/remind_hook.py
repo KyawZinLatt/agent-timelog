@@ -175,3 +175,23 @@ def run(data, now=None):
             }
         }
     )
+
+
+def main():
+    """Hook entry: read stdin JSON, run, print reminder if any. Always exit 0."""
+    try:
+        data = json.load(sys.stdin)
+    except ValueError:
+        sys.exit(0)
+    try:
+        out = run(data)
+        if out:
+            print(out)
+    except Exception:
+        # Fail-open: the reminder must never break tool execution.
+        pass
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()
