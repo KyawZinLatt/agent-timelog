@@ -125,6 +125,11 @@ def run(data, now=None):
     write-state, return '' — no transcript I/O. The transcript is scanned
     exactly once per session, at the fire point. `fired` is set BEFORE the
     scan so a missing transcript can never cause a retry-scan every call.
+
+    Single-fire is best-effort, not strict: two hook processes racing at
+    the threshold can each read fired=False and both emit (atomic replace
+    prevents corruption, not the double-fire). Harm is bounded to one
+    duplicate reminder; all later calls see fired=True.
     """
     if os.environ.get("TIMELOG_REMIND", "1") == "0":
         return ""
