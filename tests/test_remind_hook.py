@@ -121,3 +121,116 @@ def test_compose_reminder_falls_back_to_tool_count():
     )
     assert "7 tool calls" in msg
     assert "<time-log>" in msg
+
+
+# --- run() decision flow ---
+
+
+def _write_transcript(path, tool_calls, text="working"):
+    content = [{"type": "text", "text": text}]
+    content += [{"type": "tool_use", "name": "Bash"}] * tool_calls
+    row = {
+        "type": "assistant",
+        "timestamp": "2026-06-04T09:00:00.000Z",
+        "message": {"content": content},
+    }
+    path.write_text(json.dumps(row), encoding="utf-8")
+
+
+def _payload(tmp_path, transcript):
+    return {
+        "session_id": "sess-1",
+        "transcript_path": str(transcript),
+        "cwd": str(tmp_path),
+        "hook_event_name": "PostToolUse",
+    }
+
+
+def _setup(tmp_path, monkeypatch, threshold="3"):
+    monkeypatch.setattr(remind_hook.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setenv("TIMELOG_REMIND_AFTER", threshold)
+    monkeypatch.delenv("TIMELOG_REMIND", raising=False)
+
+
+def test_run_silent_below_threshold(tmp_path, monkeypatch):
+    _setup(tmp_path, monkeypatch)
+    t = tmp_path / "t.jsonl"
+    _write_transcript(t, 5)
+    p = _payload(tmp_path, t)
+    assert remind_hook.run(p, now=100.0) == ""   # count 1
+    assert remind_hook.run(p, now=101.0) == ""   # count 2
+
+
+def test_run_fires_at_threshold_with_stats(tmp_path, monkeypatch):
+    _setup(tmp_path, monkeypatch)
+    t = tmp_path / "t.jsonl"
+    _write_transcript(t, 5)
+    p = _payload(tmp_path, t)
+    remind_hook.run(p, now=100.0)
+    remind_hook.run(p, now=101.0)
+    out = remind_hook.run(p, now=102.0)          # count 3 == threshold
+    parsed = json.loads(out)
+    ctx = parsed["hookSpecificOutput"]["additionalContext"]
+    assert parsed["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
+    assert "agent-timelog" in ctx
+    assert "<time-log>" in ctx
+
+
+def test_run_single_fire(tmp_path, monkeypatch):
+    _setup(tmp_path, monkeypatch)
+    t = tmp_path / "t.jsonl"
+    _write_transcript(t, 5)
+    p = _payload(tmp_path, t)
+    for now in (1.0, 2.0, 3.0):
+        remind_hook.run(p, now=now)
+    assert remind_hook.run(p, now=4.0) == ""     # count 4: already fired
+    assert remind_hook.run(p, now=5.0) == ""     # count 5: still silent
+
+
+def test_run_marker_present_suppresses_but_marks_fired(tmp_path, monkeypatch):
+    _setup(tmp_path, monkeypatch, threshold="1")
+    t = tmp_path / "t.jsonl"
+    _write_transcript(
+        t, 2,
+        text=("<time-log>2026-06-04 09:00Z–09:30Z | feature · backend | "
+              "added retry logic to uploader | 30m</time-log>"),
+    )
+    p = _payload(tmp_path, t)
+    assert remind_hook.run(p, now=1.0) == ""
+    state = remind_hook.read_state(remind_hook.state_path("sess-1"), now=2.0)
+    assert state["fired"] is True
+
+
+def test_run_missing_transcript_fires_flag_silently(tmp_path, monkeypatch):
+    _setup(tmp_path, monkeypatch, threshold="1")
+    p = _payload(tmp_path, tmp_path / "missing.jsonl")
+    assert remind_hook.run(p, now=1.0) == ""
+    state = remind_hook.read_state(remind_hook.state_path("sess-1"), now=2.0)
+    assert state["fired"] is True
+
+
+def test_run_disabled_by_env(tmp_path, monkeypatch):
+    _setup(tmp_path, monkeypatch, threshold="1")
+    monkeypatch.setenv("TIMELOG_REMIND", "0")
+    t = tmp_path / "t.jsonl"
+    _write_transcript(t, 5)
+    assert remind_hook.run(_payload(tmp_path, t), now=1.0) == ""
+    # Disabled means no state tracking at all.
+    assert not os.path.exists(remind_hook.state_path("sess-1"))
+
+
+def test_run_bad_session_id_silent(tmp_path, monkeypatch):
+    _setup(tmp_path, monkeypatch, threshold="1")
+    t = tmp_path / "t.jsonl"
+    _write_transcript(t, 5)
+    p = _payload(tmp_path, t)
+    p["session_id"] = "../evil"
+    assert remind_hook.run(p, now=1.0) == ""
+
+
+def test_run_garbage_threshold_uses_default(tmp_path, monkeypatch):
+    _setup(tmp_path, monkeypatch, threshold="banana")
+    t = tmp_path / "t.jsonl"
+    _write_transcript(t, 5)
+    p = _payload(tmp_path, t)
+    assert remind_hook.run(p, now=1.0) == ""    # default 10, count 1: silent

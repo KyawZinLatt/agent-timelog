@@ -104,3 +104,69 @@ def compose_reminder(tool_count, files, tool_counts, first_ts, last_ts):
         stats = f"{tool_count} tool call" + ("" if tool_count == 1 else "s")
 
     return REMINDER_TEMPLATE.format(elapsed=elapsed, stats=stats)
+
+
+DEFAULT_THRESHOLD = 10
+
+
+def _threshold():
+    raw = os.environ.get("TIMELOG_REMIND_AFTER", "")
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_THRESHOLD
+    return value if value > 0 else DEFAULT_THRESHOLD
+
+
+def run(data, now=None):
+    """Decision flow. Returns the reminder JSON string, or '' for silence.
+
+    Hot path (the overwhelmingly common case) is read-state, increment,
+    write-state, return '' — no transcript I/O. The transcript is scanned
+    exactly once per session, at the fire point. `fired` is set BEFORE the
+    scan so a missing transcript can never cause a retry-scan every call.
+    """
+    if os.environ.get("TIMELOG_REMIND", "1") == "0":
+        return ""
+
+    session_id = sanitize_session_id(data.get("session_id"))
+    if not session_id:
+        return ""
+
+    if now is None:
+        now = time.time()
+
+    path = state_path(session_id)
+    state = read_state(path, now)
+    state["count"] += 1
+    state["ts"] = now
+
+    # >= not ==: a lost increment or restarted counter can never skip the trigger.
+    if state["fired"] or state["count"] < _threshold():
+        write_state(path, state)
+        return ""
+
+    state["fired"] = True
+    write_state(path, state)
+
+    transcript_path = data.get("transcript_path", "")
+    text, tool_count, first_ts, last_ts = claude_hook.scan_transcript(transcript_path)
+    if tool_count == 0 and not text:
+        return ""  # missing/empty transcript; flag stays set, stay silent
+
+    if has_quality_marker_or_skip(text):
+        return ""
+
+    project_dir = claude_hook.resolve_workspace(data.get("cwd", ""))
+    tool_counts, files, _subdirs = claude_hook.scan_session_detail(
+        transcript_path, project_dir
+    )
+    message = compose_reminder(tool_count, files, tool_counts, first_ts, last_ts)
+    return json.dumps(
+        {
+            "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": message,
+            }
+        }
+    )
