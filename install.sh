@@ -20,7 +20,9 @@ mkdir -p "$HOOK_DIR"
 cp "$SRC/timelog/__init__.py" "$HOOK_DIR/__init__.py"
 cp "$SRC/timelog/core.py" "$HOOK_DIR/core.py"
 cp "$SRC/timelog/claude_hook.py" "$HOOK_DIR/claude_hook.py"
+cp "$SRC/timelog/remind_hook.py" "$HOOK_DIR/remind_hook.py"
 chmod +x "$HOOK_DIR/claude_hook.py"
+chmod +x "$HOOK_DIR/remind_hook.py"
 
 # claude_hook.py uses `from timelog import core`; flat-copy needs sibling import
 # Replace the package import with a sys.path.insert + bare import so the script
@@ -42,10 +44,11 @@ cp "$SRC/adapters/claude-code/commands/log.md" "$CMD_DIR/log.md"
 
 # 3. settings.json hook merge (idempotent — skips if entry already present)
 HOOK_CMD="python3 \"$HOOK_DIR/claude_hook.py\""
-python3 - "$SETTINGS" "$HOOK_CMD" <<'PY'
+REMIND_CMD="python3 \"$HOOK_DIR/remind_hook.py\""
+python3 - "$SETTINGS" "$HOOK_CMD" "$REMIND_CMD" <<'PY'
 import json, os, sys
 
-settings_path, hook_cmd = sys.argv[1], sys.argv[2]
+settings_path, hook_cmd, remind_cmd = sys.argv[1], sys.argv[2], sys.argv[3]
 data = {}
 if os.path.exists(settings_path):
     with open(settings_path, encoding="utf-8") as f:
@@ -56,19 +59,26 @@ if os.path.exists(settings_path):
 
 hooks = data.setdefault("hooks", {})
 
-def ensure(event):
+def ensure(event, cmd, matcher=None, timeout=None):
     arr = hooks.setdefault(event, [])
-    for block in arr:
-        for h in block.get("hooks", []):
-            if h.get("command") == hook_cmd:
+    for existing_block in arr:
+        for h in existing_block.get("hooks", []):
+            if h.get("command") == cmd:
                 print(f"  {event}: already registered — skipping")
                 return
-    arr.append({"hooks": [{"type": "command", "command": hook_cmd}]})
+    h = {"type": "command", "command": cmd}
+    if timeout is not None:
+        h["timeout"] = timeout
+    block = {"hooks": [h]}
+    if matcher is not None:
+        block["matcher"] = matcher
+    arr.append(block)
     print(f"  {event}: registered")
 
-ensure("Stop")
-ensure("PreCompact")
-ensure("SubagentStop")
+ensure("Stop", hook_cmd)
+ensure("PreCompact", hook_cmd)
+ensure("SubagentStop", hook_cmd)
+ensure("PostToolUse", remind_cmd, matcher="*", timeout=10)
 
 with open(settings_path, "w", encoding="utf-8") as f:
     json.dump(data, f, indent=2)
