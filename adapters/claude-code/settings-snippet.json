@@ -8,6 +8,9 @@
     ],
     "SubagentStop": [
       { "hooks": [ { "type": "command", "command": "python3 \"$HOME/.claude/hooks/timelog/claude_hook.py\"" } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "*", "hooks": [ { "type": "command", "command": "python3 \"$HOME/.claude/hooks/timelog/remind_hook.py\"", "timeout": 10 } ] }
     ]
   }
 }

@@ -31,7 +31,7 @@ with open(settings_path) as f:
         sys.exit(0)
 
 changed = False
-for event in ("Stop", "PreCompact", "SubagentStop"):
+for event in ("Stop", "PreCompact", "SubagentStop", "PostToolUse"):
     arr = data.get("hooks", {}).get(event, [])
     filtered = [
         b for b in arr

@@ -26,6 +26,11 @@ Agent-authored markers are preferred because their summaries are meaningful. If 
 2. If you emitted no valid marker AND did not opt out AND the session made at least `TIMELOG_MIN_TOOLS` tool calls, it SYNTHESIZES one entry from the transcript. Category + summary are inferred from your tool use — files edited → `feature · edited a.py, b.py (N tool calls)`, commands run → `ops · ran K commands (N tool calls)`, files read → `research · read/searched K files (N tool calls)` — falling back to a generic `auto · auto-logged Stop, N tool calls` line only when no recognizable tool activity is present.
 3. Always exits 0. With enforcement on (default), it may block the main `Stop` event **once** to request a marker; it never blocks the retry, never blocks `/compact`, and never blocks a subagent. With `TIMELOG_ENFORCE=0` it never blocks at all.
 
+Mid-session, a PostToolUse hook may inject ONE reminder (with live session
+stats) once your tool-call count passes `TIMELOG_REMIND_AFTER` and no quality
+marker exists yet — respond to it by emitting the marker in your final
+response as usual.
+
 ## Opt out (SKIP)
 
 Reserve SKIP for sessions with genuinely nothing to record — a monitoring tick, an accidental start, nothing answered and nothing changed. **Q&A and discussion are work; log those with a real marker instead.** To suppress synthesis on a truly empty session:
@@ -47,6 +52,8 @@ Subagents auto-log too (the hook fires on `SubagentStop`) but are NEVER blocked.
 | `TIMELOG_DEST` | `local` | Destination: `local` (per-workspace), `global` (one central file), or `both`. |
 | `TIMELOG_GLOBAL_PATH` | `~/.claude/.time-log.md` | Global file used when `TIMELOG_DEST` is `global` or `both`. |
 | `TIMELOG_ENFORCE` | `1` | Require a real marker (default on). On `Stop`, a working session with no quality marker is blocked **once** (you must emit a marker or `SKIP`); the retry falls through to synthesis. Lazy/synthesized-looking summaries are rejected as absent. Subagents and `PreCompact` are never blocked. Set `0` to disable. |
+| `TIMELOG_REMIND` | `1` | Mid-session reminder (PostToolUse). Once a session crosses `TIMELOG_REMIND_AFTER` tool calls with no quality marker in the transcript, the hook injects ONE context reminder — with live session stats — to emit a `<time-log>` marker in the final response. Set `0` to disable. |
+| `TIMELOG_REMIND_AFTER` | `10` | Tool calls before the one-shot reminder fires. |
 | `TIMELOG_SKIP_MAX_TOOLS` | `5` | Tool-call ceiling under which a `SKIP` is honored silently. Above it the `SKIP` is challenged **once** (the session likely did real work). Only applies when enforcement is on. |
 
 Hook: `$HOME/.claude/hooks/timelog/claude_hook.py`. Data file: `<workspace>/.time-log.md` (local), and/or the global file above per `TIMELOG_DEST` (gitignored by this tool; never committed automatically).
