@@ -51,9 +51,9 @@ cd agent-timelog
 bash install.sh
 ```
 
-`install.sh` copies the Python files to `~/.claude/hooks/timelog/`, merges the three hook
-events (`Stop`, `PreCompact`, `SubagentStop`) into `~/.claude/settings.json`, and appends
-the rule block to `~/.claude/CLAUDE.md`. Re-running is idempotent.
+`install.sh` copies the Python files to `~/.claude/hooks/timelog/`, merges the four hook
+events (`Stop`, `PreCompact`, `SubagentStop`, `PostToolUse`) into `~/.claude/settings.json`,
+and appends the rule block to `~/.claude/CLAUDE.md`. Re-running is idempotent.
 
 ### Uninstall
 
