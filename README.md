@@ -121,8 +121,10 @@ string and rewrites them deterministically before logging:
 
 ### The `/log` command
 
-Run `/log` mid-session to append a one-off entry directly to `.time-log.md`, bypassing
-the marker pipeline.
+Run `/log` mid-session to append a one-off entry directly to the log, bypassing the
+marker pipeline. It honors `TIMELOG_DEST` (writing to the local file, the global file, or
+both) and applies the same workspace-slug scope prefix as the hook, so a manual `/log`
+entry is indistinguishable from an auto-logged one.
 
 ---
 

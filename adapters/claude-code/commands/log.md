@@ -9,14 +9,33 @@ User invoked `/log` to record a time-tracking entry NOW for a recently completed
 ## Your job
 
 1. Resolve workspace: `${CLAUDE_PROJECT_DIR}` (env var, set by Claude Code). If unset, fall back to current working directory.
-2. Determine log file path: `<workspace>/.time-log.md`
-3. If file does not exist, create it with the standard header (see Auto-create section below)
+2. Resolve destination file(s) from `TIMELOG_DEST` (see Destinations section below) — `local`, `global`, or `both`.
+3. For EACH destination: if the file does not exist, create it with the standard header (see Auto-create section below)
 4. Infer the most recent task: start time, end time, category, scope, summary, duration
-5. Append ONE line in canonical format:
+5. Append ONE identical line, in canonical format, to EVERY resolved destination:
 
 `YYYY-MM-DD HH:MMZ–HH:MMZ | category · scope | summary | duration`
 
-6. Confirm with a one-liner showing the entry you wrote and the file path
+6. Confirm with a one-liner showing the entry you wrote and each file path written
+
+## Destinations (honor `TIMELOG_DEST`)
+
+The hook writes to one or more files based on the `TIMELOG_DEST` env var. `/log` MUST match, so a manual entry lands in the same place(s) as an auto-logged one:
+
+- **`local`** (default, and any unset/unrecognized value): `<workspace>/.time-log.md`
+- **`global`**: the global file ONLY — `${TIMELOG_GLOBAL_PATH}` if set, else `~/.claude/.time-log.md`
+- **`both`**: local AND global — write the identical line to each
+
+Read `TIMELOG_DEST` from the environment (e.g. `echo "${TIMELOG_DEST:-local}"`). Create any missing destination with the header first, then append.
+
+### Scope must stay workspace-attributable
+
+The global file is shared across projects, so a bare scope like `backend` is ambiguous there. Mirror the hook's `normalize_scope`: prefix the scope with the workspace slug (the basename of `<workspace>`) unless it already equals `<slug>` or starts with `<slug>-`.
+
+- `backend` → `<slug>-backend` (e.g. `agent-timelog-backend`)
+- `agent-timelog-backend` → unchanged (already prefixed)
+
+Apply the SAME prefixed scope to every destination (local included), so `/log` output is byte-identical to what the hook would have written.
 
 ## Format
 
