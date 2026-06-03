@@ -151,6 +151,8 @@ This suppresses auto-synthesis. The session is not logged.
 | `TIMELOG_DEST` | `local` | Where entries are written: `local` (per-workspace `.time-log.md`), `global` (one central file), or `both` |
 | `TIMELOG_GLOBAL_PATH` | `~/.claude/.time-log.md` | Path of the global file used by `TIMELOG_DEST=global\|both` |
 | `TIMELOG_ENFORCE` | `1` | Require a real agent marker (see [Enforce mode](#enforce-mode)). Set to `0` for the legacy never-block behavior |
+| `TIMELOG_REMIND` | `1` | Mid-session reminder (PostToolUse). Once a session crosses `TIMELOG_REMIND_AFTER` tool calls with no quality marker in the transcript, the hook injects ONE context reminder — with live session stats — to emit a `<time-log>` marker in the final response. Set `0` to disable. |
+| `TIMELOG_REMIND_AFTER` | `10` | Tool calls before the one-shot reminder fires. |
 | `TIMELOG_SKIP_MAX_TOOLS` | `5` | Tool-call ceiling under which a `SKIP` is honored silently. Above it the `SKIP` is challenged once — the session likely did real work. Only applies when enforce is on |
 
 Set these in the shell profile that launches Claude Code (e.g. `~/.zshrc`).
@@ -192,6 +194,17 @@ never-block contract for subagents and `/compact`.
 
 **Set `TIMELOG_ENFORCE=0`** to disable enforcement entirely and restore the legacy
 never-block behavior (synthesis only, no marker ever required).
+
+### Mid-session reminder (PostToolUse)
+
+Enforcement is reactive — it blocks at session end. The reminder is the
+proactive half: a `PostToolUse` hook counts tool calls in a tmpdir state file
+(`timelog-remind-<session_id>.json`) and, once past the threshold, scans the
+transcript once. If no quality marker or SKIP exists yet, it injects a single
+`additionalContext` reminder with live stats (elapsed time, files edited,
+commands run). One reminder per session, fail-open, never blocks tools.
+Steady state: the marker lands in the final response and the Stop block never
+fires.
 
 ---
 
