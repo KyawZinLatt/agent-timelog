@@ -8,3 +8,5 @@ __pycache__/
 # scratch / local
 *.local
 .env
+.venv/
+uv.lock
