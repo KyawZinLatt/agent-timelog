@@ -1,3 +1,4 @@
+import datetime
 import json
 import os
 
@@ -68,3 +69,55 @@ def test_write_state_leaves_no_tmp_litter(tmp_path, monkeypatch):
     remind_hook.write_state(path, {"count": 1, "fired": False, "ts": 1.0})
     leftovers = [n for n in os.listdir(tmp_path) if n.endswith(".tmp")]
     assert leftovers == []
+
+
+# --- suppression ---
+
+def test_quality_marker_suppresses():
+    text = ("done <time-log>2026-06-04 09:00Z–09:30Z | feature · backend | "
+            "added retry logic to uploader | 30m</time-log>")
+    assert remind_hook.has_quality_marker_or_skip(text) is True
+
+
+def test_skip_suppresses():
+    assert remind_hook.has_quality_marker_or_skip(
+        "<time-log>SKIP: monitoring tick</time-log>") is True
+
+
+def test_lazy_marker_does_not_suppress():
+    # Lazy summaries are treated as absent by the Stop hook; the reminder
+    # must apply the same standard or the backstop will still block.
+    text = ("<time-log>2026-06-04 09:00Z–09:30Z | auto · ws | "
+            "auto-logged Stop, 5 tool calls | 30m</time-log>")
+    assert remind_hook.has_quality_marker_or_skip(text) is False
+
+
+def test_plain_text_does_not_suppress():
+    assert remind_hook.has_quality_marker_or_skip("no markers here") is False
+
+
+# --- composition ---
+
+def _ts(minute):
+    return datetime.datetime(2026, 6, 4, 9, minute, tzinfo=datetime.timezone.utc)
+
+
+def test_compose_reminder_with_files():
+    msg = remind_hook.compose_reminder(
+        tool_count=12,
+        files=["core.py", "remind_hook.py"],
+        tool_counts={"Edit": 4, "Bash": 3, "Read": 5},
+        first_ts=_ts(0),
+        last_ts=_ts(23),
+    )
+    assert "~23m" in msg
+    assert "edited core.py, remind_hook.py" in msg
+    assert "<time-log>" in msg
+
+
+def test_compose_reminder_falls_back_to_tool_count():
+    msg = remind_hook.compose_reminder(
+        tool_count=7, files=[], tool_counts={}, first_ts=None, last_ts=None,
+    )
+    assert "7 tool calls" in msg
+    assert "<time-log>" in msg

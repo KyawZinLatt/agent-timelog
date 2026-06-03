@@ -76,3 +76,31 @@ def write_state(path, state):
             os.unlink(tmp)
         except OSError:
             pass
+
+
+def has_quality_marker_or_skip(text):
+    """True when the transcript already settles the logging question.
+
+    Mirrors the Stop hook's enforce standard: a SKIP counts, a quality
+    (non-lazy canonical) marker counts, anything else does not — otherwise
+    the reminder would stay silent for markers the backstop will reject.
+    """
+    if core.has_skip(text):
+        return True
+    return bool(core.filter_quality(core.extract_markers(text)))
+
+
+def compose_reminder(tool_count, files, tool_counts, first_ts, last_ts):
+    """One-line reminder with live session stats from the transcript scan."""
+    minutes = 0
+    if first_ts is not None and last_ts is not None:
+        minutes = int(round((last_ts - first_ts).total_seconds() / 60))
+    elapsed = core.format_duration(minutes)
+
+    bash = sum(n for t, n in tool_counts.items() if t in core.OPS_TOOLS)
+    research = sum(n for t, n in tool_counts.items() if t in core.RESEARCH_TOOLS)
+    stats = core.compose_session_summary(files, bash, research, tool_count)
+    if stats is None:
+        stats = f"{tool_count} tool call" + ("" if tool_count == 1 else "s")
+
+    return REMINDER_TEMPLATE.format(elapsed=elapsed, stats=stats)
