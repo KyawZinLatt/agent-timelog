@@ -4,12 +4,12 @@ import os
 import subprocess
 import sys
 
+from timelog.claude_hook import resolve_workspace, read_existing_entries, scan_transcript
+
 # Markers carry today's UTC date so the date-correction rewrite is a no-op; the
 # scope is pre-normalized to the tmp workspace slug "ws" so dedup matches what the
 # hardened hook writes.
 TODAY = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
-
-from timelog.claude_hook import resolve_workspace, read_existing_entries, scan_transcript
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

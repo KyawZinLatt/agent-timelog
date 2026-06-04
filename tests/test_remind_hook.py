@@ -1,6 +1,8 @@
 import datetime
 import json
 import os
+import subprocess
+import sys
 
 from timelog import remind_hook
 
@@ -238,9 +240,6 @@ def test_run_garbage_threshold_uses_default(tmp_path, monkeypatch):
 
 # --- main() subprocess tests ---
 
-
-import subprocess
-import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOK = os.path.join(REPO, "timelog", "remind_hook.py")
