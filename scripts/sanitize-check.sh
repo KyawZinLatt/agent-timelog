@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Scan tracked files for private info before publishing. Exit 1 on any hit.
 set -uo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 
 PATTERNS=(
   '/Users/[a-z]'

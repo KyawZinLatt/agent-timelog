@@ -18,3 +18,7 @@ packages = ["timelog"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.ruff.lint.per-file-ignores]
+# Compact `setup; action` one-liners are the established style in tests.
+"tests/*" = ["E702"]
